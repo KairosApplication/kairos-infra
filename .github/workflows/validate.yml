@@ -14,6 +14,21 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  required-validation:
+    name: Validate infrastructure configuration
+    needs: [terraform, manifests]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require all infrastructure checks to pass
+        env:
+          TERRAFORM_RESULT: ${{ needs.terraform.result }}
+          MANIFESTS_RESULT: ${{ needs.manifests.result }}
+        run: |
+          test "$TERRAFORM_RESULT" = success
+          test "$MANIFESTS_RESULT" = success
+
   terraform:
     runs-on: ubuntu-latest
     timeout-minutes: 15
