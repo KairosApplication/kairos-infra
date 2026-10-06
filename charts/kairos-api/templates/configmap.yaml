@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kairos.name" . }}-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kairos.labels" . | nindent 4 }}
+data:
+  KAIROS_SOURCE_REVISION: {{ .Values.sourceRevision | quote }}
+  {{- range $name, $value := .Values.env }}
+  {{ $name }}: {{ $value | quote }}
+  {{- end }}

@@ -1,0 +1,15 @@
+.tools/
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+backend.hcl
+.env
+.env.*
+!.env.example
+__pycache__/
+*.pyc
+.rendered/

@@ -1,0 +1,34 @@
+# Copiar para .github/workflows/deploy.yml no kairos-springboot.
+name: Deploy mobile API
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  release:
+    if: >-
+      vars.KAIROS_DEPLOY_ENABLED == 'true' &&
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.head_repository.full_name == github.repository))
+    uses: KairosApplication/kairos-infra/.github/workflows/reusable-release.yml@main
+    with:
+      service: mobile-api
+      source-sha: ${{ github.event.workflow_run.head_sha || github.sha }}
+      aws-region: ${{ vars.AWS_REGION }}
+      aws-account-id: ${{ vars.AWS_ACCOUNT_ID }}
+      cluster-name: ${{ vars.EKS_CLUSTER_NAME }}
+      publisher-role-arn: ${{ vars.AWS_PUBLISHER_ROLE_ARN }}
+      deployer-role-arn: ${{ vars.AWS_DEPLOYER_ROLE_ARN }}
+      api-host: ${{ vars.API_HOST }}
+      certificate-arn: ${{ vars.API_CERTIFICATE_ARN }}
+      infra-ref: main
