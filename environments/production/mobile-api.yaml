@@ -1,0 +1,21 @@
+# Valores sem credenciais. A imagem/digest e o dominio sao injetados no deploy.
+replicaCount: 2
+availability:
+  requireSeparateNodes: true
+env:
+  API_PORT: "8080"
+  JPA_DDL_AUTO: validate
+  MANAGEMENT_ENDPOINT_HEALTH_SHOW_DETAILS: never
+  MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED: "true"
+  SERVER_SHUTDOWN: graceful
+  SPRING_LIFECYCLE_TIMEOUT_PER_SHUTDOWN_PHASE: 25s
+  SERVER_FORWARD_HEADERS_STRATEGY: framework
+  SERVER_SERVLET_SESSION_COOKIE_SECURE: "true"
+  JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=70.0"
+secrets:
+  name: kairos/production/mobile-api
+  keys: [DB_URL, DB_USERNAME, DB_PASSWORD, REDIS_URL]
+ingress:
+  enabled: true
+autoscaling:
+  enabled: false

@@ -1,0 +1,80 @@
+name: Deploy connected services
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '7,37 * * * *'
+  workflow_run:
+    workflows: [Plan and provision AWS infrastructure]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: kairos-reconcile
+  cancel-in-progress: false
+
+jobs:
+  discover:
+    if: >-
+      vars.KAIROS_RECONCILE_ENABLED == 'true' && github.ref == 'refs/heads/main' &&
+      (github.event_name != 'workflow_run' ||
+       (github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event != 'pull_request' &&
+        vars.KAIROS_INFRA_ENABLED == 'true'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      matrix: ${{ steps.registry.outputs.matrix }}
+      repositories: ${{ steps.repositories.outputs.repositories }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: List authorized source repositories
+        id: repositories
+        run: |
+          python3 -c 'import sys; sys.path.insert(0,"scripts"); from registry import load_registry; print("repositories="+",".join(s["source_repository"].split("/")[1] for s in load_registry().values() if s["enabled"]))' >> "$GITHUB_OUTPUT"
+      - name: Create source read token for private repositories
+        if: vars.DEPLOY_APP_ID != ''
+        id: app
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.DEPLOY_APP_ID }}
+          private-key: ${{ secrets.DEPLOY_APP_PRIVATE_KEY }}
+          owner: KairosApplication
+          repositories: ${{ steps.repositories.outputs.repositories }}
+          permission-contents: read
+      - name: Resolve main commits and deployment configuration
+        id: registry
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token || github.token }}
+          DEPLOY_CONFIG_JSON: ${{ vars.DEPLOY_CONFIG_JSON }}
+          AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+        run: python3 scripts/deployment-matrix.py
+
+  release:
+    needs: discover
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}
+    uses: ./.github/workflows/reusable-release.yml
+    with:
+      service: ${{ matrix.service }}
+      source-repository: ${{ matrix.source_repository }}
+      source-sha: ${{ matrix.source_sha }}
+      aws-region: ${{ vars.AWS_REGION }}
+      aws-account-id: ${{ vars.AWS_ACCOUNT_ID }}
+      cluster-name: ${{ vars.EKS_CLUSTER_NAME }}
+      publisher-role-arn: ${{ matrix.publisher_role_arn }}
+      deployer-role-arn: ${{ matrix.deployer_role_arn }}
+      api-host: ${{ matrix.api_host }}
+      certificate-arn: ${{ matrix.certificate_arn }}
+    secrets:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
+      DEPLOY_APP_PRIVATE_KEY: ${{ secrets.DEPLOY_APP_PRIVATE_KEY }}
