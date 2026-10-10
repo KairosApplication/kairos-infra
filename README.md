@@ -1,119 +1,125 @@
 # Kairos Infra
 
-Infraestrutura para duas APIs com deploys independentes no mesmo Amazon EKS:
-a API consumida pelo aplicativo mobile e a futura API consumida pelo agente de IA.
+Infraestrutura AWS e automação centralizada de build e deploy das APIs Kairos, com Terraform, Amazon EKS Auto Mode, ECR, Helm e GitHub Actions. Consulte também a [wiki](https://github.com/KairosApplication/kairos-infra/wiki).
 
-Atualmente, **somente mobile-api esta habilitada**, vinculada ao
-[KairosApplication/kairos-springboot](https://github.com/KairosApplication/kairos-springboot).
-O modelo agent-api permanece desabilitado e nao cria recursos AWS por padrao.
+## Estado atual
+
+Na revisão de 10/10/2026, a `main` contém apenas a licença. Esta documentação descreve a implementação da [PR #4](https://github.com/KairosApplication/kairos-infra/pull/4), na branch `feat/automated-infrastructure`, ainda em revisão. A [PR #3](https://github.com/KairosApplication/kairos-infra/pull/3) propõe validação estrutural e secret scan; conciliar o workflow de secret scan antes dos merges.
+
+Código publicado e CI verde não comprovam provisionamento ou deploy real. A ativação depende de merge, configuração da conta AWS, estado remoto, roles, environments, runner privado e segredos runtime.
+
+## Serviços e arquitetura
+
+O cadastro explícito em [services.json](services.json) é compartilhado pelo Terraform, bootstrap Kubernetes e matriz de deploy. Não há descoberta automática de todos os repositórios da organização.
+
+| Serviço | Origem | Estado no cadastro |
+| --- | --- | --- |
+| `mobile-api` | [kairos-springboot](https://github.com/KairosApplication/kairos-springboot) | Habilitado; build Java 21. |
+| `agent-api` | Ainda sem repositório definido | Modelo futuro desabilitado; não cria recursos por padrão. |
 
 ```mermaid
 flowchart LR
+  Source[main da API cadastrada] --> Build[Actions do kairos-infra]
+  Build --> ECR[ECR: imagem imutável por SHA]
+  ECR --> EKS[Helm: release por digest no EKS]
   Mobile[Aplicativo mobile] --> ALB[ALB HTTPS]
-  ALB --> API[API mobile Â· EKS]
-  Agent[Agente de IA Â· acesso privado] -. futuro .-> AgentAPI[API do agente Â· EKS]
-  API --> DB[(PostgreSQL existente)]
-  API --> Redis[(Redis compartilhado)]
-  GitHub[Actions do kairos-infra] --> ECR[Imagens no ECR]
-  ECR --> API
+  ALB --> EKS
+  EKS --> DB[(PostgreSQL existente)]
+  EKS --> Redis[(Redis compartilhado)]
+  Secrets[Secrets Manager + CSI + Pod Identity] --> EKS
 ```
 
-## O que este repositorio fornece
+## O que o repositório fornece
 
-- Terraform: bucket de estado, VPC em duas AZs, subnets privadas, NAT,
-  EKS Auto Mode, logs do control plane e ECR com tags imutaveis.
-- IAM: autenticacao GitHub OIDC sem chaves permanentes, roles separadas para
-  publicar imagens, implantar cada API e ler seus proprios segredos.
-- Helm: Deployment, Service, HTTPS no ALB, verificacoes de saude,
-  encerramento gradual, limites de recursos, HPA e PDB opcionais.
-- Integracao Secrets Manager via CSI e EKS Pod Identity.
-- Workflow reutilizavel: testa a API mobile com PostgreSQL, publica a imagem
-  com o SHA do codigo e implanta pelo digest, esperando a prontidao.
-- CI deste repositorio: valida Terraform, simula infraestrutura sem AWS
-  e verifica o comportamento dos manifests renderizados.
+- Terraform para estado S3, VPC em duas zonas, subnets privadas, NAT, EKS Auto Mode, ECR e IAM.
+- Roles distintas de provisionamento, publicação, deploy e runtime; autenticação OIDC e chaves AWS opcionais apenas no infra.
+- Metadados dos segredos no Secrets Manager; os valores runtime são preenchidos separadamente, fora do Git e do estado Terraform.
+- Chart Helm com HTTPS, probes, encerramento gradual, limites de recursos, NetworkPolicy e opções de HPA/PDB.
+- Runner privado opcional provisionado por Terraform; o registro no GitHub continua manual.
+- Testes simulados de Terraform, testes dos scripts/manifests e validação dos workflows.
 
-O deploy usa GitHub Actions e Helm. O historico Helm e as imagens imutaveis
-permitem rollback. Uma alteracao de infraestrutura neste repo executa validacao;
-a criacao de recursos AWS e uma etapa separada com Terraform.
+## Estrutura e guias
 
-## Estrutura
+| Caminho | Responsabilidade |
+| --- | --- |
+| `terraform/bootstrap/` | Bucket de estado; o estado inicial é local e exige backup privado. |
+| `terraform/production/` | Rede, EKS, ECR, IAM, metadados de segredos e runner opcional. |
+| `charts/kairos-api/` | Chart compartilhado de aplicação. |
+| `environments/production/` | Values específicos de cada serviço. |
+| `services.json` | Serviços autorizados e habilitados. |
+| `platform/` e `scripts/` | Bootstrap, RBAC, validação de plano, seleção de serviços e release. |
+| `.github/workflows/` | CI, provisionamento e reconciliação central. |
+| `examples/mobile-api/` | Dockerfile Java 21 de fallback. |
+| `tests/` | Testes Python dos scripts e manifests renderizados. |
 
-```text
-terraform/bootstrap/         Bucket de estado compartilhado
-terraform/production/        Rede, EKS, ECR, IAM e metadados dos segredos
-charts/kairos-api/           Chart compartilhado pelas APIs
-environments/production/    Configuracao especifica de cada API
-platform/                   Namespaces, IngressClass e driver de segredos
-services.json               Vinculos com os repositorios e APIs habilitadas
-.github/workflows/          Validacao e workflow reutilizavel de release
-examples/mobile-api/        Dockerfile e dockerignore de referencia
-docs/                       Instalacao, operacao e futura API do agente
-```
+- [Instalação](docs/setup.md): ferramentas, AWS, estado, bancos, plataforma, HTTPS e runner.
+- [Automação](docs/automation.md): variables, secrets, environments, roles e cadastro de novas APIs.
+- [Operação](docs/operations.md): rollout, rollback, rotação de segredos, escala e diagnóstico.
+- [API futura do agente](docs/agent-api.md): requisitos antes de habilitar o segundo serviço.
 
-## Como ativar
+## Workflows
 
-Siga [o guia de instalacao](docs/setup.md). Ele cobre conta/regiao AWS,
-administrador do cluster, estado Terraform, dominio/certificado, PostgreSQL,
-Redis, runner de deploy e configuracao central no kairos-infra.
+| Arquivo | Quando executa | Limite/resultado |
+| --- | --- | --- |
+| `validate.yml` | PR, push na main e manual | actionlint, fmt/validate/test Terraform e testes dos manifests; sem provisionar AWS. |
+| `secret-scan.yml` | Conforme seus eventos configurados | Gitleaks com saída mascarada. |
+| `provision.yml` | PR para main, push na main e manual | Com `KAIROS_INFRA_ENABLED=true`, gera plano real; só aplica fora de PR e na main. |
+| `reconcile.yml` | Manual, a cada 30 minutos e após provisionamento bem-sucedido na main | Com `KAIROS_RECONCILE_ENABLED=true`, resolve a main dos serviços e chama o release. |
+| `reusable-release.yml` | Chamada local pelo reconcile | Checkout por SHA, testes/build quando necessário, ECR e rollout EKS. |
 
-Todo o build e deploy executa no Actions deste repo: configure
-DEPLOY_CONFIG_JSON e ative KAIROS_RECONCILE_ENABLED depois da instalacao.
-A Action Deploy connected services roda manualmente, depois do provisionamento
-e consulta as APIs a cada 30 minutos. Nenhum workflow ou Secret AWS e instalado na API.
+O deploy executa exclusivamente no Actions de **kairos-infra**. Não instalar workflow chamador, Secrets AWS ou runner nas APIs nem no repositório `.github`. Push na API não dispara diretamente o infra; o agendamento pode atrasar. Para execução imediata, usar **Deploy connected services → Run workflow**, após a configuração.
 
-Os exemplos usam IDs, IPs e dominios ficticios. Defina os valores reais
-antes de executar Terraform. A regiao de exemplo e us-east-1; escolha a regiao
-antes do primeiro apply.
+Para commits Java ainda sem imagem, o release executa `./mvnw --batch-mode --no-transfer-progress -Ppostgres-tests clean verify`. Imagens existentes são reutilizadas pela tag imutável do SHA e implantadas por digest. O pipeline verifica a origem e revalida o SHA atual da main antes do rollout.
 
-## Dados e escala inicial
+## Ordem de ativação
 
-PostgreSQL e Redis sao configurados por endpoints no Secrets Manager.
-O PostgreSQL pode continuar no Aiven; este repo nao provisiona nem migra bancos.
-O Redis precisa ser acessivel a partir das subnets privadas: localhost e o
-Redis do Docker Compose local nao servem ao cluster. A sessao da API usa Redis
-compartilhado, inclusive durante atualizacoes.
+1. Revisar e integrar a implementação, conciliando workflows das PRs abertas.
+2. Escolher conta/região, preparar roles OIDC de plan/apply/plataforma e criar o bucket de estado com `terraform/bootstrap`. Não versionar estado, planos ou tfvars reais.
+3. Configurar variables como `AWS_ACCOUNT_ID`, `AWS_REGION`, `TF_STATE_BUCKET`, `INFRA_CONFIG_JSON` e os ARNs das roles, conforme o [guia de automação](docs/automation.md).
+4. Criar os environments `infrastructure-plan`, `infrastructure-production` e `production`; exigir revisão antes de dar acesso AWS a código de PR e restringir produção à main.
+5. Habilitar `KAIROS_INFRA_ENABLED` após o bootstrap. Revisar o plano salvo antes do apply; o pipeline bloqueia exclusões e substituições destrutivas. Recursos existentes fora do estado exigem importação.
+6. Registrar o runner Linux privado com labels `self-hosted`, `linux`, `x64`, `kairos-eks`, restrito ao infra e fora do alcance de PRs não confiáveis. Só então habilitar `KAIROS_PLATFORM_ENABLED` e executar o bootstrap.
+7. Preencher o segredo runtime com `DB_URL`, `DB_USERNAME`, `DB_PASSWORD` e `REDIS_URL`; preparar conectividade, domínio, certificado ACM e DNS.
+8. Configurar `EKS_CLUSTER_NAME` e `DEPLOY_CONFIG_JSON`. Para APIs privadas, usar GitHub App com Contents read, `DEPLOY_APP_ID` e secret `DEPLOY_APP_PRIVATE_KEY`, limitado às APIs cadastradas.
+9. Integrar o lock transacional PostgreSQL da [PR #31 da API](https://github.com/KairosApplication/kairos-springboot/pull/31) antes de ativar duas réplicas. Habilitar `KAIROS_RECONCILE_ENABLED`, executar o primeiro release e verificar login/sessão além de `/health`.
 
-A API mobile usa duas replicas em nos distintos e HPA desabilitado. Integrar
-a PR da API que serializa `PostgresAuditInitializer` antes de ativar esse deploy.
-DDL ainda deve evoluir para migracoes versionadas e compativeis durante rollout.
-Ver [operacao](docs/operations.md) e [automacao](docs/automation.md).
+Os comandos de instalação são para Bash/Linux/macOS/WSL. Terraform também pode ser executado no PowerShell. Exemplos de conta, IP e domínio nos guias são fictícios. Publicar documentação não ativa nenhum desses fluxos.
 
-Apenas logs do control plane estao provisionados no CloudWatch. Os logs da
-aplicacao ficam em stdout/stderr dos pods; para retencao centralizada, instalar
-um coletor como o CloudWatch Observability add-on e conceder suas permissoes.
+## Validação local sem AWS
 
-## Validacao local
-
-Necessario: Terraform 1.13.5, Helm 3.19.0 e Python 3.12.
+Ferramentas usadas pela CI: Terraform 1.13.5, Helm 3.19.0, Python 3.12 e actionlint 1.7.7. Execute na raiz do repositório:
 
 ```sh
 terraform fmt -check -recursive terraform
-terraform -chdir=terraform/bootstrap init -backend=false -input=false
+terraform -chdir=terraform/bootstrap init -backend=false -input=false -lockfile=readonly
 terraform -chdir=terraform/bootstrap validate
-terraform -chdir=terraform/production init -backend=false -input=false
+terraform -chdir=terraform/production init -backend=false -input=false -lockfile=readonly
 terraform -chdir=terraform/production validate
-terraform -chdir=terraform/production test
+terraform -chdir=terraform/production test -no-color
 python -m pip install -r requirements-dev.txt
 python -m unittest discover -s tests -v
+actionlint -shellcheck= .github/workflows/*.yml
+git diff --check
 ```
 
-Os testes Terraform usam `mock_provider`; seus applies sao simulados e nao
-criam recursos. A CI de validacao usa os mesmos testes simulados. O workflow
-`provision.yml` executa planos e applies reais somente depois de configurar AWS,
-environments e `KAIROS_INFRA_ENABLED=true`. Ver [automacao](docs/automation.md).
+Os testes Terraform usam provider simulado; não criam recursos. Os testes Python verificam scripts e manifests renderizados, não um cluster real. Eles não substituem testes funcionais de produção. **Não executar plan/apply/destroy real para validar uma alteração documental.**
 
-## Custos
+## Operação, dados e limites
 
-Aplicar esta infraestrutura cria recursos cobrados: EKS, nos EC2 do Auto Mode,
-NAT Gateway, IPv4, armazenamento, ECR, Secrets Manager e logs. O ALB surge no
-primeiro deploy publico. Um NAT e a configuracao inicial; dois NATs oferecem
-resiliencia por AZ com custo maior. Planeje atualizacoes da versao Kubernetes
-antes do fim do suporte padrao e configure um AWS Budget na conta.
+- PostgreSQL e Redis são serviços existentes: este repo não provisiona nem migra bancos. Redis precisa ser compartilhado e acessível do cluster; `localhost` não funciona entre pods.
+- O mobile começa com duas réplicas em nós distintos e HPA desabilitado. A afinidade e `maxSurge=1` podem exigir um terceiro nó durante rollout.
+- Helm usa `--atomic --wait`: tenta reverter upgrades com falha; uma instalação inicial com falha é removida. Rollback não desfaz mudanças no banco.
+- O reconcile também corrige drift; rollback manual pode ser sobrescrito pelo próximo ciclo. Coordenar a pausa da reconciliação e a revisão de origem antes de uma reversão operacional.
+- Rotação no Secrets Manager não atualiza variáveis já carregadas na JVM; após sincronizar, reiniciar pods gradualmente. Nunca imprimir segredos em logs.
+- CloudWatch recebe logs do control plane. Logs da aplicação ficam inicialmente em stdout/stderr; retenção centralizada exige coletor separado.
+- ALB/HTTPS exige certificado e DNS preparados; HPA exige fonte de métricas instalada e validada.
 
-## Referencias
+Consulte [operação](docs/operations.md) antes de alterar capacidade, segredos ou releases.
 
-- [EKS Auto Mode](https://docs.aws.amazon.com/eks/latest/userguide/automode.html)
-- [ALB no EKS Auto Mode](https://docs.aws.amazon.com/eks/latest/userguide/auto-configure-alb.html)
-- [GitHub OIDC e AWS](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_create_for-idp_oidc.html)
-- [Secrets Manager com pods EKS](https://docs.aws.amazon.com/eks/latest/userguide/manage-secrets.html)
-- [Politicas de rede no Auto Mode](https://docs.aws.amazon.com/eks/latest/userguide/auto-net-pol.html)
+## Custos e contribuição
+
+Provisionamento cria recursos cobrados na AWS: EKS, EC2, NAT, IPv4, armazenamento, ECR, Secrets Manager, logs e ALB após deploy público. Revise o plano, estime custos e configure orçamento antes de ativar. Esta documentação não comprova disponibilidade, custo final ou implantação real.
+
+Use branches `feat/`, `fix/`, `chore/`, `docs/`, `refactor/` ou `test/`, nunca `codex/`; commits em inglês no padrão `type(scope): description`. Labels devem refletir o diff: `terraform`, `github_actions`, `tests`, `security`, `documentation` e `chore` quando aplicáveis — não `java` por implantar uma API Java.
+
+Após o merge, atualizar esta seção de estado e os links da wiki para a main. README, guias versionados e wiki devem permanecer alinhados. Licença: [MIT](LICENSE).
