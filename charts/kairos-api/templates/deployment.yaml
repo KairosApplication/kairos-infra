@@ -10,6 +10,8 @@ spec:
   replicas: {{ .Values.replicaCount }}
   {{- end }}
   revisionHistoryLimit: 5
+  # Allow load balancer target registration before retiring an old replica.
+  minReadySeconds: 30
   progressDeadlineSeconds: 600
   strategy:
     type: RollingUpdate

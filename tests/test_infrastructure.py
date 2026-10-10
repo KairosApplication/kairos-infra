@@ -76,6 +76,7 @@ class ManifestTests(unittest.TestCase):
         self.assertEqual(deployment["strategy"]["rollingUpdate"]["maxUnavailable"], 0)
         self.assertGreaterEqual(pod["terminationGracePeriodSeconds"], 30)
         self.assertEqual(deployment['replicas'], 2)
+        self.assertEqual(deployment['minReadySeconds'], 30)
         self.assertEqual(container['lifecycle']['preStop']['sleep']['seconds'], 20)
         self.assertIn('requiredDuringSchedulingIgnoredDuringExecution', pod['affinity']['podAntiAffinity'])
         self.assertEqual(docs['PodDisruptionBudget']['spec']['maxUnavailable'], 1)
