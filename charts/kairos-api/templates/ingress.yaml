@@ -13,6 +13,7 @@ metadata:
     alb.ingress.kubernetes.io/certificate-arn: {{ required "ingress.certificateArn e obrigatorio para HTTPS" .Values.ingress.certificateArn | quote }}
     alb.ingress.kubernetes.io/healthcheck-path: {{ .Values.health.readinessPath | quote }}
     alb.ingress.kubernetes.io/success-codes: "200"
+    alb.ingress.kubernetes.io/target-group-attributes: "deregistration_delay.timeout_seconds=30"
 spec:
   ingressClassName: {{ .Values.ingress.className }}
   rules:

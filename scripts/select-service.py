@@ -4,17 +4,18 @@ import json
 import os
 import re
 from pathlib import Path
+from registry import load_registry
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def select(service, repository, source_sha):
-    registry = json.loads((ROOT / "services.json").read_text(encoding="utf-8"))
+    registry = load_registry()
     if service not in registry:
         raise ValueError("Servico desconhecido.")
     item = registry[service]
     if not item["enabled"]:
-        raise ValueError("A API do agente ainda esta desabilitada.")
+        raise ValueError("Servico desabilitado no cadastro de deploy.")
     if repository != item["source_repository"]:
         raise ValueError("O repositorio chamador nao corresponde a esta API.")
     if not re.fullmatch(r"[0-9a-f]{40}", source_sha):
@@ -36,6 +37,7 @@ def main():
         "values": item["values"],
         "fallback_dockerfile": item["fallback_dockerfile"] or "",
         "source_sha": args.source_sha,
+        "build_kind": item.get("build_kind", "docker"),
     }
     output_file = os.environ.get("GITHUB_OUTPUT")
     if output_file:

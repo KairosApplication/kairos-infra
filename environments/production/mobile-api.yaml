@@ -1,5 +1,7 @@
 # Valores sem credenciais. A imagem/digest e o dominio sao injetados no deploy.
-replicaCount: 1
+replicaCount: 2
+availability:
+  requireSeparateNodes: true
 env:
   API_PORT: "8080"
   JPA_DDL_AUTO: validate

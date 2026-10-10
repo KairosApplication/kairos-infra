@@ -6,6 +6,9 @@ Terraform tambem pode ser executado no PowerShell.
 
 ## 1. Preparar os valores e as ferramentas
 
+Para provisionamento por GitHub Actions, seguir tambem [automacao](automation.md).
+Os passos manuais abaixo continuam disponiveis para bootstrap e manutencao.
+
 Instalar AWS CLI v2, Terraform 1.13.5, kubectl compativel com Kubernetes 1.35,
 Helm 3.19.0 e Python 3.12. Autenticar na AWS, preferencialmente por IAM Identity
 Center/SSO, e conferir a conta:
@@ -138,12 +141,13 @@ acessar o endpoint privado na porta 443. Administrar a maquina por um mecanismo
 privado, como SSM, configurado separadamente; nao ha porta SSH publica aberta.
 
 Registrar um runner dedicado com labels self-hosted, linux, x64 e kairos-eks
-e limitar seu uso ao repositorio confiavel da API. Ele recebe credenciais
+e limitar seu uso ao infra e aos repositorios confiaveis das APIs. Ele recebe credenciais
 AWS temporarias por OIDC; nao precisa de credenciais AWS permanentes nem de uma
 instance profile com acesso administrativo ao cluster.
 
-O runner nao e provisionado por este repo porque registro e acesso dependem
-da configuracao da organizacao GitHub. Sem ele, o job de deploy ficara na fila.
+O Terraform pode provisionar uma maquina privada SSM com
+provision_deployment_runner e deployment_runner_ami_id; ver [automacao](automation.md).
+O registro no GitHub continua separado. Sem runner registrado, o deploy fica na fila.
 Um runner fora da VPC precisa de conectividade privada equivalente, como VPN.
 
 ## 8. Conectar o repositorio da API
@@ -169,14 +173,16 @@ No kairos-springboot:
 | API_CERTIFICATE_ARN | ARN ACM do certificado validado |
 | KAIROS_DEPLOY_ENABLED | true somente depois de concluir os passos anteriores |
 
-O workflow da API chama reusable-release.yml deste repo. Em main, uma CI
+O workflow da API chama deploy-application.yml da organizacao, que delega para
+reusable-release.yml deste repo. Em main, uma CI
 bem-sucedida dispara o release do mesmo SHA. O release tambem executa verify
 com PostgreSQL antes de publicar, inclusive na execucao manual.
 
-Por padrao, o chamador e o checkout de infraestrutura usam main. Para fixar
-uma revisao revisada da infraestrutura, substituir @main e infra-ref pelo
-mesmo SHA do kairos-infra. Atualizar esse SHA quando quiser consumir alteracoes
-do chart ou pipeline. Os dois devem apontar para a mesma revisao.
+Por padrao, os workflows compartilhados e o checkout de infraestrutura usam main.
+Para fixar revisoes, o chamador aponta para um SHA da organizacao .github.
+Dentro do workflow da organizacao, a referencia do workflow de infra e o input
+infra-ref devem apontar para o mesmo SHA do kairos-infra. Sao repositorios diferentes;
+nao usar um SHA da organizacao para fazer checkout da infraestrutura.
 
 No GitHub Actions, confirmar que a politica da organizacao permite actions
 e workflows reutilizaveis deste repo. O workflow nao precisa de PAT para

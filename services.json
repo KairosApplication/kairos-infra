@@ -1,6 +1,7 @@
 {
   "mobile-api": {
     "enabled": true,
+    "build_kind": "java21",
     "source_repository": "KairosApplication/kairos-springboot",
     "namespace": "kairos-mobile-api",
     "release": "mobile-api",
@@ -10,6 +11,7 @@
   },
   "agent-api": {
     "enabled": false,
+    "build_kind": "docker",
     "source_repository": null,
     "namespace": "kairos-agent-api",
     "release": "agent-api",

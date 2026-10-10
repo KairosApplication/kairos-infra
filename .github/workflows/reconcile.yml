@@ -1,0 +1,49 @@
+name: Deploy connected services
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: [Plan and provision AWS infrastructure]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kairos-reconcile
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    if: >-
+      vars.KAIROS_RECONCILE_ENABLED == 'true' && github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event != 'pull_request' &&
+        vars.KAIROS_INFRA_ENABLED == 'true'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: deployment-orchestrator
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate connected repositories
+        id: registry
+        run: |
+          python3 scripts/registry.py
+          python3 -c 'import sys; sys.path.insert(0,"scripts"); from registry import load_registry; print("repositories="+",".join(s["source_repository"].split("/")[1] for s in load_registry().values() if s["enabled"]))' >> "$GITHUB_OUTPUT"
+      - name: Create a short-lived GitHub App token
+        id: app
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.DEPLOY_APP_ID }}
+          private-key: ${{ secrets.DEPLOY_APP_PRIVATE_KEY }}
+          owner: KairosApplication
+          repositories: ${{ steps.registry.outputs.repositories }}
+          permission-actions: write
+      - name: Request independent deploys
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: python3 scripts/dispatch-services.py

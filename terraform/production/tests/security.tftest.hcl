@@ -95,3 +95,32 @@ run "second_api_is_isolated" {
     error_message = "A API do agente so pode ler seu proprio segredo."
   }
 }
+
+run "new_service_and_optional_static_credentials" {
+  command = apply
+  variables {
+    services = {
+      catalog-api = {
+        namespace         = "kairos-catalog-api"
+        github_repository = "KairosApplication/catalog-api"
+      }
+    }
+    github_static_principal_arns = {
+      catalog-api = "arn:aws:iam::123456789012:user/CatalogPublisher"
+    }
+    provision_deployment_runner = true
+    deployment_runner_ami_id    = "ami-0123456789abcdef0"
+  }
+  assert {
+    condition     = length(aws_ecr_repository.api) == 1 && contains(keys(aws_ecr_repository.api), "catalog-api")
+    error_message = "Novos servicos cadastrados devem criar recursos sem alterar uma lista fixa."
+  }
+  assert {
+    condition     = jsondecode(aws_iam_role.deployer["catalog-api"].assume_role_policy).Statement[1].Principal.AWS == "arn:aws:iam::123456789012:user/CatalogPublisher"
+    error_message = "Chaves devem assumir somente roles explicitamente confiaveis."
+  }
+  assert {
+    condition     = !aws_instance.runner[0].associate_public_ip_address && aws_instance.runner[0].metadata_options[0].http_tokens == "required"
+    error_message = "Runner deve ser privado e exigir IMDSv2."
+  }
+}

@@ -69,6 +69,35 @@ variable "github_oidc_provider_arn" {
   nullable    = true
 }
 
+variable "github_static_principal_arns" {
+  type        = map(string)
+  default     = {}
+  description = "Opcional: principal IAM por servico para assumir roles com chaves GitHub Secrets; OIDC permanece disponivel."
+  validation {
+    condition = alltrue([
+      for service, arn in var.github_static_principal_arns :
+      contains(keys(var.services), service) && can(regex("^arn:aws:iam::[0-9]{12}:(user|role)/.+$", arn))
+    ])
+    error_message = "Use apenas servicos cadastrados e ARNs IAM permanentes."
+  }
+}
+
+variable "provision_deployment_runner" {
+  type        = bool
+  default     = false
+  description = "Cria maquina privada SSM; registro no GitHub e realizado separadamente."
+}
+
+variable "deployment_runner_ami_id" {
+  type        = string
+  default     = null
+  description = "AMI Amazon Linux 2023 x86_64 na regiao, com SSM e AWS CLI v2."
+  validation {
+    condition     = !var.provision_deployment_runner || can(regex("^ami-[a-f0-9]{8,17}$", var.deployment_runner_ami_id))
+    error_message = "Informe uma AMI Amazon Linux 2023 x86_64 quando provisionar o runner."
+  }
+}
+
 variable "services" {
   type = map(object({
     namespace         = string
@@ -84,11 +113,11 @@ variable "services" {
   validation {
     condition = length(var.services) > 0 && alltrue([
       for name, service in var.services :
-      contains(["mobile-api", "agent-api"], name) &&
+      can(regex("^[a-z][a-z0-9-]{0,38}[a-z0-9]$", name)) &&
       can(regex("^[a-z][a-z0-9-]{0,61}[a-z0-9]$", service.namespace)) &&
       (service.github_repository == null ? true : can(regex("^KairosApplication/[A-Za-z0-9_.-]+$", service.github_repository)))
     ])
-    error_message = "Use mobile-api ou agent-api, namespace Kubernetes valido e repositorio da KairosApplication."
+    error_message = "Use nome de servico e namespace validos e repositorio da KairosApplication."
   }
   validation {
     condition     = length(distinct([for service in var.services : service.namespace])) == length(var.services)

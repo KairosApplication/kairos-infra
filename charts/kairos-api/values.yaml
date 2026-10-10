@@ -1,4 +1,6 @@
 replicaCount: 1
+availability:
+  requireSeparateNodes: false
 image:
   repository: ""
   digest: ""

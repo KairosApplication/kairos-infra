@@ -44,16 +44,16 @@ Nunca imprimir seu conteudo em logs de diagnostico.
 
 ## Escala
 
-O deploy inicial usa uma replica para validar a aplicacao no novo ambiente.
-Com uma replica pode haver interrupcao durante falha de no.
+O deploy mobile usa duas replicas em nos separados e cria um PDB.
+A afinidade obrigatoria exige capacidade para dois nos e pode exigir um terceiro
+durante o rollout com maxSurge=1. Nao reduzir para uma replica esperando tolerancia
+a falha de no.
 
-A API atual usa Redis para compartilhar sessoes, mas executa DDL de auditoria
-em PostgresAuditInitializer ao iniciar. Antes de aumentar replicas ou habilitar
-HPA, mover esses scripts para migracoes Flyway ou demonstrar que inicializacoes
-simultaneas sao seguras. Testar tambem login e sessoes durante o rollout.
+Integrar a PR da API com lock transacional no PostgresAuditInitializer antes
+de ativar o deploy. Redis compartilha sessoes entre replicas. Planejar a migracao
+futura do DDL de auditoria para Flyway e testar login/sessoes durante o rollout.
 
-Depois dessa validacao, mudar replicaCount em environments/production/mobile-api.yaml.
-O chart cria um PDB para mais de uma replica. Para HPA, instalar um metrics-server
+Para HPA, instalar um metrics-server
 compativel com a versao EKS e confirmar kubectl top pods antes de habilitar
 autoscaling.enabled. Ajustar minReplicas, maxReplicas e CPU a partir de medicao,
 incluindo o limite de conexoes PostgreSQL por replica.

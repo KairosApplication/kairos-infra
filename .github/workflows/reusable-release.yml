@@ -2,6 +2,13 @@ name: Build and deploy Kairos API
 
 on:
   workflow_call:
+    secrets:
+      AWS_ACCESS_KEY_ID:
+        required: false
+      AWS_SECRET_ACCESS_KEY:
+        required: false
+      AWS_SESSION_TOKEN:
+        required: false
     inputs:
       service:
         type: string
@@ -52,6 +59,7 @@ jobs:
       values: ${{ steps.service.outputs.values }}
       fallback_dockerfile: ${{ steps.service.outputs.fallback_dockerfile }}
       source_sha: ${{ steps.service.outputs.source_sha }}
+      build_kind: ${{ steps.service.outputs.build_kind }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -108,15 +116,15 @@ jobs:
           path: infrastructure
           persist-credentials: false
       - name: Set up Java
-        if: inputs.service == 'mobile-api'
+        if: needs.prepare.outputs.build_kind == 'java21'
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "21"
           cache: maven
           cache-dependency-path: source/pom.xml
-      - name: Verify mobile API with PostgreSQL before publishing
-        if: inputs.service == 'mobile-api'
+      - name: Verify Java API with PostgreSQL before publishing
+        if: needs.prepare.outputs.build_kind == 'java21'
         working-directory: source
         run: bash ./mvnw --batch-mode --no-transfer-progress -Ppostgres-tests clean verify
       - uses: docker/setup-buildx-action@v3
@@ -124,6 +132,9 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v5
         with:
           role-to-assume: ${{ inputs.publisher-role-arn }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
           aws-region: ${{ inputs.aws-region }}
           allowed-account-ids: ${{ inputs.aws-account-id }}
           unset-current-credentials: true
@@ -185,9 +196,10 @@ jobs:
           repository: KairosApplication/kairos-infra
           ref: ${{ inputs.infra-ref }}
           persist-credentials: false
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
+      - name: Check private runner tools
+        run: |
+          python3 -c 'import sys; assert sys.version_info >= (3, 9), "Python 3.9+ necessario"'
+          aws --version
       - uses: azure/setup-helm@v4.3.0
         with:
           version: v3.19.0
@@ -198,11 +210,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           SOURCE_REPOSITORY: ${{ github.repository }}
-        run: python scripts/check-source-revision.py
+        run: python3 scripts/check-source-revision.py
       - name: Authenticate to AWS
         uses: aws-actions/configure-aws-credentials@v5
         with:
           role-to-assume: ${{ inputs.deployer-role-arn }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
           aws-region: ${{ inputs.aws-region }}
           allowed-account-ids: ${{ inputs.aws-account-id }}
           unset-current-credentials: true
@@ -215,12 +230,30 @@ jobs:
           kubectl auth can-i patch deployments --namespace "$NAMESPACE"
       - name: Render release overrides
         run: |
-          python scripts/release-values.py \
+          python3 scripts/release-values.py \
             --image-repository "$IMAGE_REPOSITORY" --digest "$IMAGE_DIGEST" \
             --source-sha "$SOURCE_SHA" --region "$AWS_REGION" \
             --host "$API_HOST" --certificate-arn "$CERTIFICATE_ARN" \
             --output "$RUNNER_TEMP/kairos-release.json"
+      - name: Require platform and populated runtime secrets
+        env:
+          SECRET_NAME: kairos/production/${{ inputs.service }}
+        run: |
+          set -euo pipefail
+          kubectl get deployments --namespace "$NAMESPACE"
+          kubectl get secretproviderclasses --namespace "$NAMESPACE"
+          # Only metadata is read; runtime secret values never enter the runner.
+          aws secretsmanager describe-secret --secret-id "$SECRET_NAME" \
+            --query 'VersionIdsToStages' --output json > "$RUNNER_TEMP/secret-versions.json"
+          python3 -c 'import json,os; v=json.load(open(os.environ["RUNNER_TEMP"]+"/secret-versions.json")); assert any("AWSCURRENT" in stages for stages in v.values()), "Preencha o segredo no Secrets Manager antes do deploy"'
+      - name: Check whether the application exists or needs updating
+        id: state
+        run: |
+          python3 scripts/release-state.py --release "$RELEASE" --namespace "$NAMESPACE" \
+            --values "$VALUES_FILE" --overrides "$RUNNER_TEMP/kairos-release.json"
       - name: Deploy and wait for readiness
+        # Classification never skips drift reconciliation of the live objects.
+        id: rollout
         run: |
           set -euo pipefail
           helm upgrade --install "$RELEASE" charts/kairos-api \

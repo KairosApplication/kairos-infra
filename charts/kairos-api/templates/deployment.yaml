@@ -25,10 +25,20 @@ spec:
         {{- include "kairos.selectorLabels" . | nindent 8 }}
       annotations:
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/secret-provider: {{ include (print $.Template.BasePath "/secrets.yaml") . | sha256sum }}
     spec:
       serviceAccountName: {{ .Values.serviceAccount.name }}
       automountServiceAccountToken: false
-      terminationGracePeriodSeconds: 45
+      terminationGracePeriodSeconds: 75
+      {{- if .Values.availability.requireSeparateNodes }}
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - topologyKey: kubernetes.io/hostname
+              labelSelector:
+                matchLabels:
+                  {{- include "kairos.selectorLabels" . | nindent 18 }}
+      {{- end }}
       securityContext:
         runAsNonRoot: true
         runAsUser: 10001
@@ -50,6 +60,10 @@ spec:
         - name: api
           image: "{{ required "image.repository e obrigatorio" .Values.image.repository }}@{{ required "image.digest e obrigatorio" .Values.image.digest }}"
           imagePullPolicy: IfNotPresent
+          lifecycle:
+            preStop:
+              sleep:
+                seconds: 20
           ports:
             - name: http
               containerPort: {{ .Values.containerPort }}
@@ -77,6 +91,7 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 3
+            successThreshold: 2
           # Liveness does not depend on PostgreSQL/Redis availability.
           livenessProbe:
             tcpSocket:

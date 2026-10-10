@@ -3,12 +3,14 @@ import importlib.util
 import json
 import os
 import subprocess
+import sys
 import unittest
 from pathlib import Path
 
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / 'scripts'))
 HELM = os.environ.get("HELM_BINARY", "helm")
 DIGEST = "sha256:" + "a" * 64
 SHA = "b" * 40
@@ -73,6 +75,10 @@ class ManifestTests(unittest.TestCase):
         self.assertIn("tcpSocket", container["livenessProbe"])
         self.assertEqual(deployment["strategy"]["rollingUpdate"]["maxUnavailable"], 0)
         self.assertGreaterEqual(pod["terminationGracePeriodSeconds"], 30)
+        self.assertEqual(deployment['replicas'], 2)
+        self.assertEqual(container['lifecycle']['preStop']['sleep']['seconds'], 20)
+        self.assertIn('requiredDuringSchedulingIgnoredDuringExecution', pod['affinity']['podAntiAffinity'])
+        self.assertEqual(docs['PodDisruptionBudget']['spec']['maxUnavailable'], 1)
 
     def test_credentials_are_scoped_and_not_in_configmap(self):
         docs = render()

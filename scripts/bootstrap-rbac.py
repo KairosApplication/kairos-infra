@@ -1,6 +1,7 @@
 """Grant each enabled deploy group access to its own SecretProviderClass."""
 import json
 from pathlib import Path
+from registry import load_registry
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -42,5 +43,5 @@ def resources(registry):
 
 
 if __name__ == "__main__":
-    registry = json.loads((ROOT / "services.json").read_text(encoding="utf-8"))
+    registry = load_registry()
     print(json.dumps(resources(registry), indent=2))

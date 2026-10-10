@@ -5,7 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 aws eks update-kubeconfig --region "$AWS_REGION" --name "$EKS_CLUSTER_NAME"
-kubectl apply -f platform/namespaces.yaml
+python3 scripts/bootstrap-namespaces.py | kubectl apply -f -
 kubectl apply -f platform/ingress-class.yaml
 kubectl apply -f platform/enable-network-policy.yaml
 

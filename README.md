@@ -72,11 +72,10 @@ O Redis precisa ser acessivel a partir das subnets privadas: localhost e o
 Redis do Docker Compose local nao servem ao cluster. A sessao da API usa Redis
 compartilhado, inclusive durante atualizacoes.
 
-A API mobile comeca com uma replica e HPA desabilitado. Antes de ampliar,
-validar a inicializacao simultanea: o codigo atual possui
-`PostgresAuditInitializer`, que executa DDL alem do Flyway. Preferir mover
-essa inicializacao para migracoes versionadas e testar o rollout com replicas.
-Ver [operacao](docs/operations.md).
+A API mobile usa duas replicas em nos distintos e HPA desabilitado. Integrar
+a PR da API que serializa `PostgresAuditInitializer` antes de ativar esse deploy.
+DDL ainda deve evoluir para migracoes versionadas e compativeis durante rollout.
+Ver [operacao](docs/operations.md) e [automacao](docs/automation.md).
 
 Apenas logs do control plane estao provisionados no CloudWatch. Os logs da
 aplicacao ficam em stdout/stderr dos pods; para retencao centralizada, instalar
@@ -98,7 +97,9 @@ python -m unittest discover -s tests -v
 ```
 
 Os testes Terraform usam `mock_provider`; seus applies sao simulados e nao
-criam recursos. A CI usa os mesmos testes e nunca executa um apply real.
+criam recursos. A CI de validacao usa os mesmos testes simulados. O workflow
+`provision.yml` executa planos e applies reais somente depois de configurar AWS,
+environments e `KAIROS_INFRA_ENABLED=true`. Ver [automacao](docs/automation.md).
 
 ## Custos
 

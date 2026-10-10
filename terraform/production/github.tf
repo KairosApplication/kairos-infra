@@ -13,7 +13,7 @@ resource "aws_iam_role" "publisher" {
   name     = "${local.name}-${each.key}-publish"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{
+    Statement = concat([{
       Effect    = "Allow"
       Principal = { Federated = local.github_oidc_arn }
       Action    = "sts:AssumeRoleWithWebIdentity"
@@ -23,7 +23,11 @@ resource "aws_iam_role" "publisher" {
           "token.actions.githubusercontent.com:sub" = "repo:${each.value.github_repository}:ref:refs/heads/main"
         }
       }
-    }]
+      }], contains(keys(var.github_static_principal_arns), each.key) ? [{
+      Effect    = "Allow"
+      Principal = { AWS = var.github_static_principal_arns[each.key] }
+      Action    = "sts:AssumeRole"
+    }] : [])
   })
 }
 
@@ -61,7 +65,7 @@ resource "aws_iam_role" "deployer" {
   name     = "${local.name}-${each.key}-deploy"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{
+    Statement = concat([{
       Effect    = "Allow"
       Principal = { Federated = local.github_oidc_arn }
       Action    = "sts:AssumeRoleWithWebIdentity"
@@ -71,7 +75,11 @@ resource "aws_iam_role" "deployer" {
           "token.actions.githubusercontent.com:sub" = "repo:${each.value.github_repository}:environment:production"
         }
       }
-    }]
+      }], contains(keys(var.github_static_principal_arns), each.key) ? [{
+      Effect    = "Allow"
+      Principal = { AWS = var.github_static_principal_arns[each.key] }
+      Action    = "sts:AssumeRole"
+    }] : [])
   })
 }
 
@@ -84,6 +92,10 @@ resource "aws_iam_role_policy" "deployer" {
       Effect   = "Allow"
       Action   = ["eks:DescribeCluster"]
       Resource = aws_eks_cluster.main.arn
+      }, {
+      Effect   = "Allow"
+      Action   = ["secretsmanager:DescribeSecret"]
+      Resource = aws_secretsmanager_secret.api[each.key].arn
     }]
   })
 }
