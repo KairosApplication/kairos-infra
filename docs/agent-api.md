@@ -21,11 +21,9 @@ Para habilitar quando a aplicacao estiver pronta:
 6. Preencher o segredo kairos/production/agent-api e revisar secrets.keys
    em environments/production/agent-api.yaml. AGENT_API_TOKEN e apenas um
    nome de exemplo, nao uma autenticacao ja implementada.
-7. Criar no repositorio da segunda API um workflow chamador equivalente ao exemplo
-   mobile, com service: agent-api, variaveis AWS proprias, CI como gate e
-   Environment production limitado a main. O Dockerfile desta API e obrigatorio;
-   nao ha fallback de runtime.
-8. Testar conectividade e autenticacao a partir do consumidor autorizado.
+7. Configurar o servico em DEPLOY_CONFIG_JSON do kairos-infra e habilitar
+   somente depois de testar a API. Nao instalar chamador de deploy na API.
+
 
 O endereco interno sera:
 

@@ -67,6 +67,26 @@ class AutomationTests(unittest.TestCase):
                                                       'change': {'actions': ['create']}}]})
         self.assertEqual(counts['create'], 1)
 
+    def test_central_matrix_resolves_only_enabled_sources_and_rejects_bad_roles(self):
+        deploy = module('deployment-matrix')
+        registry = load_registry()
+        config = {'mobile-api': {'publisher_role_arn': 'arn:aws:iam::123456789012:role/publish',
+                                 'deployer_role_arn': 'arn:aws:iam::123456789012:role/deploy'}}
+        seen = []
+        def resolve(repository):
+            seen.append(repository)
+            return 'a' * 40
+        result = deploy.matrix(registry, config, '123456789012', resolve)
+        self.assertEqual(seen, ['KairosApplication/kairos-springboot'])
+        self.assertEqual(result['include'][0]['source_sha'], 'a' * 40)
+        self.assertEqual(len(result['include']), 1)
+        with self.assertRaises(ValueError):
+            deploy.matrix(registry, dict(config, **{'agent-api': config['mobile-api']}),
+                          '123456789012', resolve)
+        config['mobile-api']['deployer_role_arn'] = 'arn:aws:iam::999999999999:role/deploy'
+        with self.assertRaises(ValueError):
+            deploy.matrix(registry, config, '123456789012', resolve)
+
     def test_release_state_distinguishes_install_update_and_current(self):
         state = module('release-state')
         self.assertEqual(state.classify('desired', None, None), 'install')

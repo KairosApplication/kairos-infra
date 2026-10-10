@@ -1,4 +1,4 @@
-"""Resolve a trusted caller to its infrastructure service."""
+"""Resolve a registered source to its infrastructure service."""
 import argparse
 import json
 import os
@@ -17,7 +17,7 @@ def select(service, repository, source_sha):
     if not item["enabled"]:
         raise ValueError("Servico desabilitado no cadastro de deploy.")
     if repository != item["source_repository"]:
-        raise ValueError("O repositorio chamador nao corresponde a esta API.")
+        raise ValueError("O repositorio de origem nao corresponde a esta API.")
     if not re.fullmatch(r"[0-9a-f]{40}", source_sha):
         raise ValueError("Informe o SHA completo do commit da API.")
     return item
@@ -31,6 +31,7 @@ def main():
     args = parser.parse_args()
     item = select(args.service, args.repository, args.source_sha)
     outputs = {
+        "source_repository_name": item["source_repository"].split("/")[1],
         "namespace": item["namespace"],
         "release": item["release"],
         "ecr_repository": item["ecr_repository"],

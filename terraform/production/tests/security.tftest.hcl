@@ -30,6 +30,10 @@ run "mobile_only" {
   # Apply is simulated by mock_provider: no AWS calls or live resources.
   command = apply
   assert {
+    condition     = jsondecode(aws_iam_role.deployer["mobile-api"].assume_role_policy).Statement[0].Condition.StringEquals["token.actions.githubusercontent.com:sub"] == "repo:KairosApplication/kairos-infra:environment:production"
+    error_message = "Deploy deve aceitar somente o ambiente production do infra."
+  }
+  assert {
     condition     = length(aws_ecr_repository.api) == 1 && contains(keys(aws_ecr_repository.api), "mobile-api")
     error_message = "A API do agente nao pode criar recursos enquanto estiver desabilitada."
   }
@@ -54,8 +58,8 @@ run "mobile_only" {
     error_message = "A topologia inicial deve usar duas AZs e um NAT."
   }
   assert {
-    condition     = jsondecode(aws_iam_role.publisher["mobile-api"].assume_role_policy).Statement[0].Condition.StringEquals["token.actions.githubusercontent.com:sub"] == "repo:KairosApplication/kairos-springboot:ref:refs/heads/main"
-    error_message = "Publicacao ECR deve aceitar somente main da API principal."
+    condition     = jsondecode(aws_iam_role.publisher["mobile-api"].assume_role_policy).Statement[0].Condition.StringEquals["token.actions.githubusercontent.com:sub"] == "repo:KairosApplication/kairos-infra:ref:refs/heads/main"
+    error_message = "Publicacao ECR deve aceitar somente main do repositorio de infra."
   }
 }
 

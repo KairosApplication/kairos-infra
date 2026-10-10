@@ -73,6 +73,6 @@ jobs:
           curl --fail --silent --show-error --location "$base/actionlint_${version}_checksums.txt" -o "$RUNNER_TEMP/checksums.txt"
           (cd "$RUNNER_TEMP" && grep "  $archive$" checksums.txt | sha256sum --check -)
           tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP" actionlint
-          "$RUNNER_TEMP/actionlint" -shellcheck= .github/workflows/*.yml examples/mobile-api/deploy.yml
+          "$RUNNER_TEMP/actionlint" -shellcheck= .github/workflows/*.yml
       - name: Test rendered manifests and deployment boundaries
         run: python -m unittest discover -s tests -v

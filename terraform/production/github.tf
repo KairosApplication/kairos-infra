@@ -20,7 +20,7 @@ resource "aws_iam_role" "publisher" {
       Condition = {
         StringEquals = {
           "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
-          "token.actions.githubusercontent.com:sub" = "repo:${each.value.github_repository}:ref:refs/heads/main"
+          "token.actions.githubusercontent.com:sub" = "repo:KairosApplication/kairos-infra:ref:refs/heads/main"
         }
       }
       }], contains(keys(var.github_static_principal_arns), each.key) ? [{
@@ -72,7 +72,7 @@ resource "aws_iam_role" "deployer" {
       Condition = {
         StringEquals = {
           "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
-          "token.actions.githubusercontent.com:sub" = "repo:${each.value.github_repository}:environment:production"
+          "token.actions.githubusercontent.com:sub" = "repo:KairosApplication/kairos-infra:environment:production"
         }
       }
       }], contains(keys(var.github_static_principal_arns), each.key) ? [{

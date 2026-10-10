@@ -6,13 +6,21 @@
 | --- | --- | --- |
 | `validate.yml` e `secret-scan.yml` | PR, push em main ou manual | Validacao local, testes simulados e busca por segredos, sem provisionar AWS. |
 | `provision.yml` | PR, push em main ou manual | Plano AWS com estado S3; somente main pode aplicar o plano salvo. |
-| `reconcile.yml` | Provisionamento bem-sucedido em main ou manual | Solicita deploy independente dos repositorios habilitados. |
-| `deploy.yml` na API | CI bem-sucedida em main ou manual | Chama o workflow da organizacao, publica a imagem e reconcilia o release. |
+| `reconcile.yml` | Manual, a cada 30 minutos ou depois de provisionar em main | Resolve os commits de main e executa build e deploy de cada API habilitada no proprio infra. |
+| `reusable-release.yml` | Chamada local pelo reconcile | Testes, imagem ECR, classificacao do release e rollout EKS. |
 
-O workflow publico `KairosApplication/.github/.github/workflows/deploy-application.yml`
-delega para `kairos-infra/.github/workflows/reusable-release.yml`. O contexto e as
-credenciais continuam sendo os do repositorio chamador. A organizacao nao executa
-automaticamente workflows em outros repositorios: cada API precisa de seu chamador.
+Todo o fluxo executa no Actions do `kairos-infra`. Nao instalar workflow de deploy,
+Secrets AWS, environments ou runners nos repositorios das APIs ou no repo .github.
+O codigo da API e obtido por checkout do SHA atual da main cadastrado na matriz.
+Antes de implantar, o pipeline verifica novamente se esse SHA continua atual.
+
+O agendamento consulta as APIs a cada 30 minutos; o GitHub pode atrasar execucoes.
+Push em outro repositorio nao dispara diretamente o workflow do infra.
+Para executar imediatamente, usar Actions > Deploy connected services > Run workflow.
+O primeiro build de cada commit Java executa verify com PostgreSQL. Se a imagem
+imutavel desse SHA ja existe, ela e reutilizada sem repetir os testes/build.
+Mesmo sem mudancas, Helm reconcilia o release para corrigir drift sem reiniciar pods
+quando o manifesto e igual. Somente o pipeline deve ter permissao de publicar no ECR.
 
 ## Cadastro unico de servicos
 
@@ -27,7 +35,7 @@ Para cadastrar outra API:
    ECR `kairos/NOME`, arquivo de values e `build_kind` (`java21` ou `docker`).
 3. Para `java21`, a API deve implementar o perfil Maven `postgres-tests`; para `docker`,
    fornecer Dockerfile e CI no repositorio. Adaptar testes do pipeline conforme a stack.
-4. Instalar seu chamador `deploy.yml`, Environment e variables. Habilitar somente depois
+4. Configurar o servico em DEPLOY_CONFIG_JSON do infra. Habilitar somente depois
    que os testes e os endpoints estiverem prontos.
 5. Integrar o cadastro, revisar o plano e aplicar para criar ECR, roles, acesso e segredo.
 6. Executar o bootstrap da plataforma para gerar seu namespace e RBAC.
@@ -46,8 +54,8 @@ se uma API nova ja esta pronta.
 
 ## Configuracao no GitHub
 
-Integrar primeiro esta PR de infra, depois o workflow da organizacao e por fim
-a PR do chamador da API. Referencias `@main` so funcionam depois dessa integracao.
+Integrar a PR do infra. O workflow da organizacao e o chamador na API foram removidos.
+Antes de ativar duas replicas, integrar o ajuste de concorrencia PostgreSQL da API.
 
 No `kairos-infra`, criar estas repository variables:
 
@@ -62,7 +70,9 @@ No `kairos-infra`, criar estas repository variables:
 | `KAIROS_INFRA_ENABLED` | `true` depois de preparar bucket, roles e ambientes. |
 | `KAIROS_PLATFORM_ENABLED` | `true` depois de registrar o runner com acesso ao EKS. |
 | `KAIROS_RECONCILE_ENABLED` | `true` depois de conectar APIs e instalar o GitHub App. |
-| `DEPLOY_APP_ID` | ID do GitHub App para solicitar os deploys. |
+| `DEPLOY_APP_ID` | Opcional: App com Contents read para APIs privadas. |
+| `EKS_CLUSTER_NAME` | Nome real do cluster provisionado. |
+| `DEPLOY_CONFIG_JSON` | Mapa por servico com roles e dominio/certificado; exemplo abaixo. |
 
 Exemplo de `INFRA_CONFIG_JSON`; substituir os valores de exemplo:
 
@@ -78,9 +88,9 @@ Exemplo de `INFRA_CONFIG_JSON`; substituir os valores de exemplo:
 ```
 
 Criar os Environments `infrastructure-plan`, `infrastructure-production` e
-`deployment-orchestrator`. Exigir revisao em `infrastructure-plan` antes de
+`production`. Exigir revisao em `infrastructure-plan` antes de
 executar codigo de uma PR com acesso AWS; somente PRs do proprio repositorio
-podem solicitar esse plano. Em `infrastructure-production` e `deployment-orchestrator`,
+podem solicitar esse plano. Em `infrastructure-production` e `production`,
 restringir branches a main e configurar revisao antes do apply se desejado.
 As verificacoes sem AWS continuam rodando enquanto a automacao estiver desabilitada.
 
@@ -96,10 +106,8 @@ Nao conceder leitura de valores de segredos ao planejador.
 ### Chaves AWS em Secrets (opcional)
 
 OIDC dispensa chaves permanentes. Se optar por chaves, criar `AWS_ACCESS_KEY_ID`
-e `AWS_SECRET_ACCESS_KEY` nos Secrets dos repositorios que executam os jobs:
-`kairos-infra` e `kairos-springboot`. Para credenciais temporarias, incluir tambem
-`AWS_SESSION_TOKEN` e atualizar antes de expirarem. O chamador encaminha apenas
-esses tres Secrets ao workflow compartilhado.
+e `AWS_SECRET_ACCESS_KEY` somente nos Secrets do `kairos-infra`. Para credenciais temporarias, incluir tambem
+`AWS_SESSION_TOKEN` e atualizar antes de expirarem. O workflow central encaminha esses Secrets ao release local.
 
 O pipeline usa essas chaves para assumir as roles configuradas. Para infra,
 as roles de plan/apply/plataforma precisam confiar explicitamente no principal IAM
@@ -117,17 +125,35 @@ ter permissoes administrativas; as roles de aplicacao permanecem limitadas a ECR
 metadados do proprio segredo e namespace. Sem esses Secrets, a action usa OIDC.
 Nao colocar chaves em Variables, tfvars, user_data ou no cadastro de servicos.
 
-### GitHub App para a reconciliacao central
+### Configuracao de deploy e acesso ao codigo
 
-Criar um App com permissao de repositorio **Actions: Read and write** e instala-lo
-somente nos repositorios de aplicacoes autorizados. Guardar sua chave privada no
-Secret `DEPLOY_APP_PRIVATE_KEY` do kairos-infra. A action gera um token temporario
-limitado aos repositorios habilitados e o revoga ao terminar. `GITHUB_TOKEN` comum
-do infra nao tem permissao para disparar workflows de outros repositorios.
+Criar DEPLOY_CONFIG_JSON como Variable do kairos-infra, usando os ARNs do output
+Terraform services, o dominio e o certificado ACM validados:
 
-O job central informa se conseguiu solicitar os deploys. O resultado do build/deploy
-e consultado no Actions de cada API; solicitar uma execucao nao significa que ela
-ja foi concluida. Uma API com `KAIROS_DEPLOY_ENABLED` desativado continua sem deploy.
+```json
+{
+  "mobile-api": {
+    "publisher_role_arn": "arn:aws:iam::123456789012:role/kairos-production-mobile-api-publish",
+    "deployer_role_arn": "arn:aws:iam::123456789012:role/kairos-production-mobile-api-deploy",
+    "api_host": "api.seu-dominio.com",
+    "certificate_arn": "arn:aws:acm:us-east-1:123456789012:certificate/ID-REAL"
+  }
+}
+```
+
+Configurar exatamente as entradas enabled:true do services.json, sem senhas.
+As roles OIDC das APIs agora confiam na main do kairos-infra para publicar e no
+Environment production do kairos-infra para implantar. Aplicar esse Terraform
+antes de executar o release; roles antigas que confiam no repo da API devem ser atualizadas.
+
+Para APIs publicas, o GITHUB_TOKEN do infra acessa o codigo publico, sem App.
+Para APIs privadas, criar um GitHub App com **Contents: Read-only**, instala-lo
+somente nas APIs cadastradas, configurar DEPLOY_APP_ID e guardar a chave em
+DEPLOY_APP_PRIVATE_KEY no infra. Os tokens temporarios sao gerados por job,
+limitados aos repositorios autorizados e revogados no fim. Nao precisa de
+Actions write, pois nao ha disparos nem commits nos repositorios de origem.
+
+Os resultados de todos os builds e deploys aparecem no Actions do kairos-infra.
 
 ## Recursos novos, existentes e planos destrutivos
 
@@ -156,7 +182,7 @@ permite SSM e nao administra o cluster. O output deployment_runner_instance_id
 permite acessar via Session Manager e registrar o runner como usuario kairos-runner.
 Instalar o runner seguindo Settings > Actions > Runners, verificar `aws --version`
 e usar labels `self-hosted,linux,x64,kairos-eks`. Registrar como runner da organizacao
-com grupo restrito ao kairos-infra e aos repositorios de APIs autorizados.
+com grupo restrito ao kairos-infra.
 Nunca disponibiliza-lo para jobs de PR nao confiaveis.
 
 O registro GitHub e realizado separadamente; tokens de registro nao entram no
@@ -182,6 +208,5 @@ Rollback Helm nao desfaz mudancas no banco. Falhas de dependencias ou capacidade
 podem causar indisponibilidade mesmo com esse rollout.
 
 Para executar a verificacao central: Actions > Deploy connected services > Run workflow.
-Para uma API: Actions > Deploy mobile API > Run workflow. O SHA mais recente da
-main e validado novamente antes de publicar. A API Java executa seus testes com
-PostgreSQL tambem em releases manuais.
+Os jobs da matriz identificam cada API. O SHA mais recente da main e validado
+novamente antes de implantar. Imagens existentes sao reutilizadas por digest.

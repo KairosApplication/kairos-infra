@@ -141,7 +141,7 @@ acessar o endpoint privado na porta 443. Administrar a maquina por um mecanismo
 privado, como SSM, configurado separadamente; nao ha porta SSH publica aberta.
 
 Registrar um runner dedicado com labels self-hosted, linux, x64 e kairos-eks
-e limitar seu uso ao infra e aos repositorios confiaveis das APIs. Ele recebe credenciais
+e limitar seu uso ao kairos-infra. Ele recebe credenciais
 AWS temporarias por OIDC; nao precisa de credenciais AWS permanentes nem de uma
 instance profile com acesso administrativo ao cluster.
 
@@ -150,43 +150,20 @@ provision_deployment_runner e deployment_runner_ami_id; ver [automacao](automati
 O registro no GitHub continua separado. Sem runner registrado, o deploy fica na fila.
 Um runner fora da VPC precisa de conectividade privada equivalente, como VPN.
 
-## 8. Conectar o repositorio da API
+## 8. Configurar deploy centralizado no infra
 
-No kairos-springboot:
+Cadastrar a API no services.json e configurar DEPLOY_CONFIG_JSON, AWS_ACCOUNT_ID,
+AWS_REGION e EKS_CLUSTER_NAME no kairos-infra. Criar o Environment production
+restrito a main. Chaves opcionais AWS ficam somente nos Secrets do infra.
+Repositorios privados precisam do App com Contents read descrito em
+[automacao](automation.md).
 
-1. Copiar examples/mobile-api/deploy.yml para .github/workflows/deploy.yml.
-2. O workflow usa o Dockerfile da API se existir; caso contrario, usa o
-   Dockerfile Java 21 deste repo. A CI da API deve continuar chamada CI.
-3. Criar um GitHub Environment production, restringir deploys a main e
-   configurar aprovacao se desejado. A restricao a main e necessaria porque
-   o subject OIDC de ambientes nao inclui a branch.
-4. Cadastrar estas repository variables em Settings > Secrets and variables > Actions.
-
-| Variable | Valor |
-|---|---|
-| AWS_REGION | Regiao escolhida |
-| AWS_ACCOUNT_ID | ID da conta com 12 digitos |
-| EKS_CLUSTER_NAME | Nome do cluster |
-| AWS_PUBLISHER_ROLE_ARN | publisher_role_arn do output services |
-| AWS_DEPLOYER_ROLE_ARN | deployer_role_arn do output services |
-| API_HOST | Dominio da API, sem https:// |
-| API_CERTIFICATE_ARN | ARN ACM do certificado validado |
-| KAIROS_DEPLOY_ENABLED | true somente depois de concluir os passos anteriores |
-
-O workflow da API chama deploy-application.yml da organizacao, que delega para
-reusable-release.yml deste repo. Em main, uma CI
-bem-sucedida dispara o release do mesmo SHA. O release tambem executa verify
-com PostgreSQL antes de publicar, inclusive na execucao manual.
-
-Por padrao, os workflows compartilhados e o checkout de infraestrutura usam main.
-Para fixar revisoes, o chamador aponta para um SHA da organizacao .github.
-Dentro do workflow da organizacao, a referencia do workflow de infra e o input
-infra-ref devem apontar para o mesmo SHA do kairos-infra. Sao repositorios diferentes;
-nao usar um SHA da organizacao para fazer checkout da infraestrutura.
-
-No GitHub Actions, confirmar que a politica da organizacao permite actions
-e workflows reutilizaveis deste repo. O workflow nao precisa de PAT para
-editar outro repositorio.
+Nenhum arquivo de deploy precisa ser copiado para a API. O infra baixa o codigo
+da main, testa commits novos, publica no ECR e faz rollout. Seu Dockerfile e
+usado se existir; caso contrario, o fallback Java 21 esta em examples/mobile-api.
+Ativar KAIROS_RECONCILE_ENABLED=true somente depois de preparar AWS, segredos
+runtime, dominio/certificado e runner. Executar Deploy connected services
+manualmente para o primeiro release; depois o agendamento detecta mudancas.
 
 ## 9. Conferir o primeiro release
 

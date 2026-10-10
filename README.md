@@ -10,11 +10,11 @@ O modelo agent-api permanece desabilitado e nao cria recursos AWS por padrao.
 ```mermaid
 flowchart LR
   Mobile[Aplicativo mobile] --> ALB[ALB HTTPS]
-  ALB --> API[API mobile · EKS]
-  Agent[Agente de IA · acesso privado] -. futuro .-> AgentAPI[API do agente · EKS]
+  ALB --> API[API mobile Â· EKS]
+  Agent[Agente de IA Â· acesso privado] -. futuro .-> AgentAPI[API do agente Â· EKS]
   API --> DB[(PostgreSQL existente)]
   API --> Redis[(Redis compartilhado)]
-  GitHub[CI da API] --> ECR[Imagens no ECR]
+  GitHub[Actions do kairos-infra] --> ECR[Imagens no ECR]
   ECR --> API
 ```
 
@@ -46,7 +46,7 @@ environments/production/    Configuracao especifica de cada API
 platform/                   Namespaces, IngressClass e driver de segredos
 services.json               Vinculos com os repositorios e APIs habilitadas
 .github/workflows/          Validacao e workflow reutilizavel de release
-examples/mobile-api/        Workflow chamador, Dockerfile e dockerignore
+examples/mobile-api/        Dockerfile e dockerignore de referencia
 docs/                       Instalacao, operacao e futura API do agente
 ```
 
@@ -54,11 +54,12 @@ docs/                       Instalacao, operacao e futura API do agente
 
 Siga [o guia de instalacao](docs/setup.md). Ele cobre conta/regiao AWS,
 administrador do cluster, estado Terraform, dominio/certificado, PostgreSQL,
-Redis, runner de deploy e configuracao no repositorio da API.
+Redis, runner de deploy e configuracao central no kairos-infra.
 
-O [workflow chamador](examples/mobile-api/deploy.yml) deve ser copiado para
-`.github/workflows/deploy.yml` no kairos-springboot.
-`KAIROS_DEPLOY_ENABLED` deve continuar desativado ate concluir a instalacao.
+Todo o build e deploy executa no Actions deste repo: configure
+DEPLOY_CONFIG_JSON e ative KAIROS_RECONCILE_ENABLED depois da instalacao.
+A Action Deploy connected services roda manualmente, depois do provisionamento
+e consulta as APIs a cada 30 minutos. Nenhum workflow ou Secret AWS e instalado na API.
 
 Os exemplos usam IDs, IPs e dominios ficticios. Defina os valores reais
 antes de executar Terraform. A regiao de exemplo e us-east-1; escolha a regiao
