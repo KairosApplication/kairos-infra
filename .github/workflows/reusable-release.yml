@@ -64,7 +64,7 @@ jobs:
       build_kind: ${{ steps.service.outputs.build_kind }}
       source_repository_name: ${{ steps.service.outputs.source_repository_name }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: KairosApplication/kairos-infra
           ref: ${{ github.sha }}
@@ -114,7 +114,7 @@ jobs:
           repositories: ${{ needs.prepare.outputs.source_repository_name }}
           permission-contents: read
       - name: Checkout application commit
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: ${{ inputs.source-repository }}
           token: ${{ steps.app.outputs.token || github.token }}
@@ -126,7 +126,7 @@ jobs:
         working-directory: source
         run: git merge-base --is-ancestor HEAD origin/main
       - name: Checkout infrastructure
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: KairosApplication/kairos-infra
           ref: ${{ github.sha }}
@@ -221,7 +221,7 @@ jobs:
       API_HOST: ${{ inputs.api-host }}
       CERTIFICATE_ARN: ${{ inputs.certificate-arn }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: KairosApplication/kairos-infra
           ref: ${{ github.sha }}
