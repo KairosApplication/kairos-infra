@@ -1,0 +1,22 @@
+aws_region                     = "us-east-1" # Escolher a regiao antes do primeiro apply.
+aws_account_id                 = "123456789012"
+cluster_name                   = "kairos-production"
+kubernetes_version             = "1.35"
+cluster_public_access_cidrs     = ["203.0.113.10/32"] # IP real do operador.
+cluster_admin_principal_arns    = ["arn:aws:iam::123456789012:role/KairosInfraAdmin"]
+single_nat_gateway             = true
+
+# Se a conta ja tem o provider GitHub OIDC, informar seu ARN.
+# github_oidc_provider_arn = "arn:aws:iam::123456789012:oidc-provider/token.actions.githubusercontent.com"
+
+services = {
+  mobile-api = {
+    namespace         = "kairos-mobile-api"
+    github_repository = "KairosApplication/kairos-springboot"
+  }
+  # Habilitar somente quando a API do agente estiver pronta.
+  # agent-api = {
+  #   namespace         = "kairos-agent-api"
+  #   github_repository = "KairosApplication/REPOSITORIO-REAL"
+  # }
+}

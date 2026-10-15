@@ -1,0 +1,162 @@
+name: Plan and provision AWS infrastructure
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# PR plans and production applies share the state lock and this execution queue.
+concurrency:
+  group: kairos-infrastructure-production
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    if: >-
+      vars.KAIROS_INFRA_ENABLED == 'true' &&
+      (github.event_name != 'pull_request' ||
+       github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: infrastructure-plan
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      cluster_name: ${{ steps.cluster.outputs.name }}
+    env:
+      TF_IN_AUTOMATION: "true"
+      AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+      INFRA_CONFIG_JSON: ${{ vars.INFRA_CONFIG_JSON }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.13.5
+          terraform_wrapper: false
+      - run: python3 scripts/prepare-infra.py
+      - uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.AWS_INFRA_PLAN_ROLE_ARN }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID }}
+          unset-current-credentials: true
+      - name: Plan against the locked remote state
+        run: |
+          set -euo pipefail
+          terraform -chdir=terraform/production init -input=false -lockfile=readonly \
+            -backend-config="$RUNNER_TEMP/backend.hcl"
+          terraform -chdir=terraform/production plan -input=false -lock-timeout=5m \
+            -var-file="$RUNNER_TEMP/infra.tfvars.json" -out="$RUNNER_TEMP/production.tfplan"
+          terraform -chdir=terraform/production show -json "$RUNNER_TEMP/production.tfplan" > "$RUNNER_TEMP/plan.json"
+          python3 scripts/check-plan.py "$RUNNER_TEMP/plan.json" >> "$GITHUB_STEP_SUMMARY"
+      - name: Read planned cluster name
+        id: cluster
+        run: |
+          python3 -c 'import json,os; p=json.load(open(os.environ["RUNNER_TEMP"]+"/plan.json")); print("name="+p["planned_values"]["outputs"]["cluster_name"]["value"])' >> "$GITHUB_OUTPUT"
+      - name: Save the exact production plan
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-plan-${{ github.run_id }}
+          path: ${{ runner.temp }}/production.tfplan
+          retention-days: 1
+          if-no-files-found: error
+
+  apply:
+    needs: plan
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    environment: infrastructure-production
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      TF_IN_AUTOMATION: "true"
+      AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+      INFRA_CONFIG_JSON: ${{ vars.INFRA_CONFIG_JSON }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.13.5
+          terraform_wrapper: false
+      - name: Reject a superseded infrastructure commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_REPOSITORY: ${{ github.repository }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: python3 scripts/check-source-revision.py
+      - run: python3 scripts/prepare-infra.py
+      - uses: actions/download-artifact@v4
+        with:
+          name: production-plan-${{ github.run_id }}
+          path: ${{ runner.temp }}
+      - uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.AWS_INFRA_APPLY_ROLE_ARN }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID }}
+          unset-current-credentials: true
+      - name: Apply the reviewed plan
+        run: |
+          set -euo pipefail
+          terraform -chdir=terraform/production init -input=false -lockfile=readonly \
+            -backend-config="$RUNNER_TEMP/backend.hcl"
+          terraform -chdir=terraform/production show -json "$RUNNER_TEMP/production.tfplan" > "$RUNNER_TEMP/plan.json"
+          python3 scripts/check-plan.py "$RUNNER_TEMP/plan.json"
+          terraform -chdir=terraform/production apply -input=false -lock-timeout=5m "$RUNNER_TEMP/production.tfplan"
+          terraform -chdir=terraform/production output -json services >> "$GITHUB_STEP_SUMMARY"
+
+  platform:
+    needs: [plan, apply]
+    if: vars.KAIROS_PLATFORM_ENABLED == 'true'
+    runs-on: [self-hosted, linux, x64, kairos-eks]
+    timeout-minutes: 20
+    environment: infrastructure-production
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      EKS_CLUSTER_NAME: ${{ needs.plan.outputs.cluster_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: azure/setup-helm@v4.3.0
+        with:
+          version: v3.19.0
+      - uses: azure/setup-kubectl@v4
+        with:
+          version: v1.35.0
+      - uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.AWS_PLATFORM_ROLE_ARN }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID }}
+          unset-current-credentials: true
+      - run: bash scripts/bootstrap-platform.sh

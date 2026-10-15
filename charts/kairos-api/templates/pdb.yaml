@@ -1,0 +1,14 @@
+{{- if or .Values.autoscaling.enabled (gt (int .Values.replicaCount) 1) }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "kairos.name" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kairos.labels" . | nindent 4 }}
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      {{- include "kairos.selectorLabels" . | nindent 6 }}
+{{- end }}

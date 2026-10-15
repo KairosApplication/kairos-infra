@@ -1,0 +1,15 @@
+# Modelo da futura API. services.json mantem seu deploy desabilitado.
+# Ajustar runtime, porta, health, memoria e chaves reais antes de habilitar.
+replicaCount: 1
+env:
+  API_PORT: "8080"
+secrets:
+  name: kairos/production/agent-api
+  keys: [AGENT_API_TOKEN]
+ingress:
+  enabled: false
+networkPolicy:
+  enabled: true
+  allowedNamespace: kairos-agent-client
+  allowedPodLabels:
+    app.kubernetes.io/name: kairos-agent

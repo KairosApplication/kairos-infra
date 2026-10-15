@@ -1,0 +1,7 @@
+apiVersion: v2
+name: kairos-api
+description: Deploy independente de uma API Kairos no Amazon EKS Auto Mode.
+type: application
+version: 0.1.0
+appVersion: "1.0"
+kubeVersion: ">=1.30.0-0"

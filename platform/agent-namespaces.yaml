@@ -1,0 +1,16 @@
+# Aplicar somente quando a API do agente estiver pronta.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kairos-agent-api
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kairos-agent-client
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest

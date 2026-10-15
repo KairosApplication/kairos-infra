@@ -1,0 +1,305 @@
+name: Build and deploy Kairos API
+
+on:
+  workflow_call:
+    secrets:
+      AWS_ACCESS_KEY_ID:
+        required: false
+      AWS_SECRET_ACCESS_KEY:
+        required: false
+      AWS_SESSION_TOKEN:
+        required: false
+      DEPLOY_APP_PRIVATE_KEY:
+        required: false
+    inputs:
+      service:
+        type: string
+        required: true
+      source-sha:
+        type: string
+        required: true
+      aws-region:
+        type: string
+        required: true
+      aws-account-id:
+        type: string
+        required: true
+      cluster-name:
+        type: string
+        required: true
+      publisher-role-arn:
+        type: string
+        required: true
+      deployer-role-arn:
+        type: string
+        required: true
+      api-host:
+        type: string
+        default: ""
+      certificate-arn:
+        type: string
+        default: ""
+      source-repository:
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kairos-release-${{ github.repository }}-${{ inputs.service }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      namespace: ${{ steps.service.outputs.namespace }}
+      release: ${{ steps.service.outputs.release }}
+      ecr_repository: ${{ steps.service.outputs.ecr_repository }}
+      values: ${{ steps.service.outputs.values }}
+      fallback_dockerfile: ${{ steps.service.outputs.fallback_dockerfile }}
+      source_sha: ${{ steps.service.outputs.source_sha }}
+      build_kind: ${{ steps.service.outputs.build_kind }}
+      source_repository_name: ${{ steps.service.outputs.source_repository_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: KairosApplication/kairos-infra
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Validate central executor and source commit
+        id: service
+        env:
+          SOURCE_REPOSITORY: ${{ inputs.source-repository }}
+          SERVICE: ${{ inputs.service }}
+          SOURCE_SHA: ${{ inputs.source-sha }}
+          AWS_ACCOUNT_ID: ${{ inputs.aws-account-id }}
+          PUBLISHER_ROLE: ${{ inputs.publisher-role-arn }}
+          DEPLOYER_ROLE: ${{ inputs.deployer-role-arn }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == refs/heads/main ]]
+          [[ "$GITHUB_REPOSITORY" == KairosApplication/kairos-infra ]]
+          [[ "$AWS_ACCOUNT_ID" =~ ^[0-9]{12}$ ]]
+          [[ "$PUBLISHER_ROLE" == "arn:aws:iam::${AWS_ACCOUNT_ID}:role/"* ]]
+          [[ "$DEPLOYER_ROLE" == "arn:aws:iam::${AWS_ACCOUNT_ID}:role/"* ]]
+          python3 scripts/select-service.py --service "$SERVICE" \
+            --repository "$SOURCE_REPOSITORY" --source-sha "$SOURCE_SHA"
+
+  publish:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      digest: ${{ steps.image.outputs.digest }}
+      image_repository: ${{ steps.image.outputs.image_repository }}
+    env:
+      AWS_REGION: ${{ inputs.aws-region }}
+      ECR_REPOSITORY: ${{ needs.prepare.outputs.ecr_repository }}
+      SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+    steps:
+      - name: Create source read token for private repositories
+        if: vars.DEPLOY_APP_ID != ''
+        id: app
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.DEPLOY_APP_ID }}
+          private-key: ${{ secrets.DEPLOY_APP_PRIVATE_KEY }}
+          owner: KairosApplication
+          repositories: ${{ needs.prepare.outputs.source_repository_name }}
+          permission-contents: read
+      - name: Checkout application commit
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.source-repository }}
+          token: ${{ steps.app.outputs.token || github.token }}
+          ref: ${{ needs.prepare.outputs.source_sha }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require a commit from main
+        working-directory: source
+        run: git merge-base --is-ancestor HEAD origin/main
+      - name: Checkout infrastructure
+        uses: actions/checkout@v4
+        with:
+          repository: KairosApplication/kairos-infra
+          ref: ${{ github.sha }}
+          path: infrastructure
+          persist-credentials: false
+      - name: Authenticate to AWS with temporary credentials
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ inputs.publisher-role-arn }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ inputs.aws-region }}
+          allowed-account-ids: ${{ inputs.aws-account-id }}
+          unset-current-credentials: true
+          role-session-name: kairos-publish-${{ github.run_id }}
+      - name: Check whether this verified image already exists
+        id: existing
+        run: |
+          set -euo pipefail
+          if aws ecr describe-images --repository-name "$ECR_REPOSITORY" \
+            --image-ids "imageTag=$SOURCE_SHA" > /dev/null 2> "$RUNNER_TEMP/ecr-error"; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          elif grep -q ImageNotFoundException "$RUNNER_TEMP/ecr-error"; then
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          else
+            cat "$RUNNER_TEMP/ecr-error" >&2
+            exit 1
+          fi
+      - name: Set up Java
+        if: needs.prepare.outputs.build_kind == 'java21' && steps.existing.outputs.exists != 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+          cache-dependency-path: source/pom.xml
+      - name: Verify Java API with PostgreSQL before publishing
+        if: needs.prepare.outputs.build_kind == 'java21' && steps.existing.outputs.exists != 'true'
+        working-directory: source
+        run: bash ./mvnw --batch-mode --no-transfer-progress -Ppostgres-tests clean verify
+      - uses: docker/setup-buildx-action@v3
+      - uses: aws-actions/amazon-ecr-login@v2
+        id: login
+      - name: Publish immutable image or reuse it on a retry
+        id: image
+        env:
+          REGISTRY: ${{ steps.login.outputs.registry }}
+          FALLBACK_DOCKERFILE: ${{ needs.prepare.outputs.fallback_dockerfile }}
+        run: |
+          set -euo pipefail
+          if aws ecr describe-images --repository-name "$ECR_REPOSITORY" \
+            --image-ids "imageTag=$SOURCE_SHA" > /dev/null 2> "$RUNNER_TEMP/ecr-error"; then
+            echo "A imagem deste commit ja existe; reutilizando."
+          elif grep -q ImageNotFoundException "$RUNNER_TEMP/ecr-error"; then
+            dockerfile=source/Dockerfile
+            if [[ ! -f "$dockerfile" && -n "$FALLBACK_DOCKERFILE" ]]; then
+              dockerfile="infrastructure/$FALLBACK_DOCKERFILE"
+            fi
+            test -f "$dockerfile"
+            docker buildx build --platform linux/amd64 --provenance=false \
+              --file "$dockerfile" --tag "$REGISTRY/$ECR_REPOSITORY:$SOURCE_SHA" \
+              --push source
+          else
+            cat "$RUNNER_TEMP/ecr-error" >&2
+            exit 1
+          fi
+          digest=$(aws ecr describe-images --repository-name "$ECR_REPOSITORY" \
+            --image-ids "imageTag=$SOURCE_SHA" --query 'imageDetails[0].imageDigest' --output text)
+          [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          echo "image_repository=$REGISTRY/$ECR_REPOSITORY" >> "$GITHUB_OUTPUT"
+
+  deploy:
+    needs: [prepare, publish]
+    # Runner Linux dedicado, com acesso de rede ao endpoint privado do EKS.
+    runs-on: [self-hosted, linux, x64, kairos-eks]
+    timeout-minutes: 20
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AWS_REGION: ${{ inputs.aws-region }}
+      CLUSTER_NAME: ${{ inputs.cluster-name }}
+      NAMESPACE: ${{ needs.prepare.outputs.namespace }}
+      RELEASE: ${{ needs.prepare.outputs.release }}
+      VALUES_FILE: ${{ needs.prepare.outputs.values }}
+      IMAGE_REPOSITORY: ${{ needs.publish.outputs.image_repository }}
+      IMAGE_DIGEST: ${{ needs.publish.outputs.digest }}
+      SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+      API_HOST: ${{ inputs.api-host }}
+      CERTIFICATE_ARN: ${{ inputs.certificate-arn }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: KairosApplication/kairos-infra
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Check private runner tools
+        run: |
+          python3 -c 'import sys; assert sys.version_info >= (3, 9), "Python 3.9+ necessario"'
+          aws --version
+      - uses: azure/setup-helm@v4.3.0
+        with:
+          version: v3.19.0
+      - uses: azure/setup-kubectl@v4
+        with:
+          version: v1.35.0
+      - name: Create source read token for private repositories
+        if: vars.DEPLOY_APP_ID != ''
+        id: app
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.DEPLOY_APP_ID }}
+          private-key: ${{ secrets.DEPLOY_APP_PRIVATE_KEY }}
+          owner: KairosApplication
+          repositories: ${{ needs.prepare.outputs.source_repository_name }}
+          permission-contents: read
+      - name: Validate current source revision
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token || github.token }}
+          SOURCE_REPOSITORY: ${{ inputs.source-repository }}
+        run: python3 scripts/check-source-revision.py
+      - name: Authenticate to AWS
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ inputs.deployer-role-arn }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ inputs.aws-region }}
+          allowed-account-ids: ${{ inputs.aws-account-id }}
+          unset-current-credentials: true
+          role-session-name: kairos-deploy-${{ github.run_id }}
+      - name: Connect to the cluster
+        run: |
+          set -euo pipefail
+          command -v aws
+          aws eks update-kubeconfig --name "$CLUSTER_NAME" --region "$AWS_REGION"
+          kubectl auth can-i patch deployments --namespace "$NAMESPACE"
+      - name: Render release overrides
+        run: |
+          python3 scripts/release-values.py \
+            --image-repository "$IMAGE_REPOSITORY" --digest "$IMAGE_DIGEST" \
+            --source-sha "$SOURCE_SHA" --region "$AWS_REGION" \
+            --host "$API_HOST" --certificate-arn "$CERTIFICATE_ARN" \
+            --output "$RUNNER_TEMP/kairos-release.json"
+      - name: Require platform and populated runtime secrets
+        env:
+          SECRET_NAME: kairos/production/${{ inputs.service }}
+        run: |
+          set -euo pipefail
+          kubectl get deployments --namespace "$NAMESPACE"
+          kubectl get secretproviderclasses --namespace "$NAMESPACE"
+          # Only metadata is read; runtime secret values never enter the runner.
+          aws secretsmanager describe-secret --secret-id "$SECRET_NAME" \
+            --query 'VersionIdsToStages' --output json > "$RUNNER_TEMP/secret-versions.json"
+          python3 -c 'import json,os; v=json.load(open(os.environ["RUNNER_TEMP"]+"/secret-versions.json")); assert any("AWSCURRENT" in stages for stages in v.values()), "Preencha o segredo no Secrets Manager antes do deploy"'
+      - name: Check whether the application exists or needs updating
+        id: state
+        run: |
+          python3 scripts/release-state.py --release "$RELEASE" --namespace "$NAMESPACE" \
+            --values "$VALUES_FILE" --overrides "$RUNNER_TEMP/kairos-release.json"
+      - name: Deploy and wait for readiness
+        # Classification never skips drift reconciliation of the live objects.
+        id: rollout
+        run: |
+          set -euo pipefail
+          helm upgrade --install "$RELEASE" charts/kairos-api \
+            --namespace "$NAMESPACE" -f "$VALUES_FILE" \
+            -f "$RUNNER_TEMP/kairos-release.json" \
+            --atomic --wait --timeout 15m --history-max 10
+          kubectl rollout status "deployment/$RELEASE" --namespace "$NAMESPACE" --timeout=60s
+          printf 'API: %s\nCommit: %s\nImage: %s@%s\n' \
+            "$RELEASE" "$SOURCE_SHA" "$IMAGE_REPOSITORY" "$IMAGE_DIGEST" >> "$GITHUB_STEP_SUMMARY"

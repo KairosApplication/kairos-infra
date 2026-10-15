@@ -1,0 +1,22 @@
+{
+  "mobile-api": {
+    "enabled": true,
+    "build_kind": "java21",
+    "source_repository": "KairosApplication/kairos-springboot",
+    "namespace": "kairos-mobile-api",
+    "release": "mobile-api",
+    "ecr_repository": "kairos/mobile-api",
+    "values": "environments/production/mobile-api.yaml",
+    "fallback_dockerfile": "examples/mobile-api/Dockerfile"
+  },
+  "agent-api": {
+    "enabled": false,
+    "build_kind": "docker",
+    "source_repository": null,
+    "namespace": "kairos-agent-api",
+    "release": "agent-api",
+    "ecr_repository": "kairos/agent-api",
+    "values": "environments/production/agent-api.yaml",
+    "fallback_dockerfile": null
+  }
+}
