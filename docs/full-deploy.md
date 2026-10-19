@@ -48,7 +48,8 @@ INFRA_CONFIG_JSON minimo:
 
 O fluxo acrescenta administrador da plataforma, roles das APIs, runner, AMI AL2023,
 provider OIDC e Redis. Administradores adicionais e outras opcoes de rede continuam
-aceitos. Para fixar AMI, adicionar deployment_runner_ami_id. Atualizacoes de AMI
+aceitos. O bootstrap reutiliza a AMI do runner existente; em instalacao nova resolve a AMI publica.
+Para fixar AMI, adicionar deployment_runner_ami_id. Atualizacoes de AMI
 que exigem recriar instancia sao bloqueadas pelo guard de exclusoes; manutencao
 da maquina exige plano especifico. Nao usar este workflow para rotacionar senha Redis.
 

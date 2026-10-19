@@ -219,7 +219,10 @@ def main():
         subject = "environment:infrastructure-plan" if key == "plan" else "environment:infrastructure-production"
         document = json.dumps(trust(provider, subject, principal))
         try:
-            iam.get_role(RoleName=name)
+            existing_role = iam.get_role(RoleName=name)["Role"]
+            if not any(tag["Key"] == "Project" and tag["Value"] == "Kairos"
+                       for tag in existing_role.get("Tags", [])):
+                raise ValueError("Role existente sem ownership Kairos: " + name)
         except iam.exceptions.NoSuchEntityException:
             iam.create_role(RoleName=name, AssumeRolePolicyDocument=document,
                             Tags=[{"Key": "Project", "Value": "Kairos"}])
@@ -231,7 +234,15 @@ def main():
         config["github_static_principal_arns"] = {
             name: principal for name, item in load_registry().items() if item["enabled"]}
     if not config.get("deployment_runner_ami_id"):
-        config["deployment_runner_ami_id"] = boto3.client("ssm").get_parameter(
+        instances = boto3.client("ec2").describe_instances(Filters=[
+            {"Name": "tag:Name", "Values": [config["cluster_name"] + "-deploy-runner"]},
+            {"Name": "tag:Project", "Values": ["Kairos"]},
+            {"Name": "instance-state-name", "Values": ["pending", "running", "stopping", "stopped"]}])
+        images = {instance["ImageId"] for reservation in instances["Reservations"]
+                  for instance in reservation["Instances"]}
+        if len(images) > 1:
+            raise ValueError("Mais de uma AMI de runner encontrada; configure deployment_runner_ami_id.")
+        config["deployment_runner_ami_id"] = next(iter(images)) if images else boto3.client("ssm").get_parameter(
             Name="/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64")["Parameter"]["Value"]
     import secrets
     ensure_secret(boto3.client("secretsmanager"),

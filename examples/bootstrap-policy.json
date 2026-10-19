@@ -96,6 +96,12 @@
         "ssm:GetCommandInvocation"
       ],
       "Resource": "*"
+    },
+    {
+      "Sid": "ExistingRunnerImage",
+      "Effect": "Allow",
+      "Action": "ec2:DescribeInstances",
+      "Resource": "*"
     }
   ]
 }

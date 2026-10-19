@@ -6,7 +6,11 @@ variable "redis_auth_token" {
   type      = string
   sensitive = true
   ephemeral = true
-  default   = ""
+  default   = null
+  validation {
+    condition     = !var.provision_redis || can(regex("^[A-Za-z0-9_-]{32,128}$", var.redis_auth_token))
+    error_message = "Redis gerenciado exige token ephemeral com 32 a 128 caracteres alfanumericos, _ ou -."
+  }
 }
 variable "redis_auth_version" {
   type    = number

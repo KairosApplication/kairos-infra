@@ -150,3 +150,12 @@ run "managed_redis_is_private_encrypted_and_replicated" {
     error_message = "Redis so pode aceitar trafego dos nos EKS."
   }
 }
+
+run "redis_cannot_be_provisioned_without_authentication" {
+  command = plan
+  variables {
+    provision_redis  = true
+    redis_auth_token = null
+  }
+  expect_failures = [var.redis_auth_token]
+}
