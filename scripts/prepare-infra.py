@@ -16,7 +16,7 @@ def configuration(config, registry, account, region, bucket):
     allowed = {'cluster_name', 'kubernetes_version', 'vpc_cidr', 'single_nat_gateway',
                'cluster_public_access_cidrs', 'cluster_admin_principal_arns',
                'github_oidc_provider_arn', 'provision_deployment_runner',
-               'deployment_runner_ami_id', 'github_static_principal_arns'}
+               'deployment_runner_ami_id', 'github_static_principal_arns', 'provision_redis', 'redis_auth_version'}
     if set(config) - allowed:
         raise ValueError('INFRA_CONFIG_JSON possui campos desconhecidos; services vem do cadastro.')
     if not config.get('cluster_admin_principal_arns') or not config.get('cluster_public_access_cidrs'):

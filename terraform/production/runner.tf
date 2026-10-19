@@ -43,7 +43,7 @@ resource "aws_instance" "runner" {
   user_data  = <<-SCRIPT
     #!/bin/bash
     set -euo pipefail
-    dnf install -y git python3 tar gzip libicu
+    dnf install -y git python3 tar gzip libicu awscli2
     useradd --create-home --shell /bin/bash kairos-runner
   SCRIPT
   tags       = { Name = "${local.name}-deploy-runner" }
@@ -52,4 +52,17 @@ resource "aws_instance" "runner" {
 
 output "deployment_runner_instance_id" {
   value = try(aws_instance.runner[0].id, null)
+}
+
+resource "aws_iam_role_policy" "runner_registration" {
+  count = var.provision_deployment_runner ? 1 : 0
+  role  = aws_iam_role.runner[0].id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["ssm:GetParameter"]
+      Resource = "arn:aws:ssm:${var.aws_region}:${var.aws_account_id}:parameter/kairos/runner/${aws_instance.runner[0].id}/registration"
+    }]
+  })
 }

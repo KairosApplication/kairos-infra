@@ -18,5 +18,16 @@
     "ecr_repository": "kairos/agent-api",
     "values": "environments/production/agent-api.yaml",
     "fallback_dockerfile": null
+  },
+  "redis-api": {
+    "enabled": true,
+    "build_kind": "python312",
+    "source_repository": "KairosApplication/kairos-data",
+    "source_path": "redis",
+    "namespace": "kairos-redis-api",
+    "release": "redis-api",
+    "ecr_repository": "kairos/redis-api",
+    "values": "environments/production/redis-api.yaml",
+    "fallback_dockerfile": "examples/redis-api/Dockerfile"
   }
 }

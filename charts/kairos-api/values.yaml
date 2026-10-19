@@ -39,5 +39,7 @@ autoscaling:
 networkPolicy:
   enabled: false
   allowedNamespace: kairos-agent-client
-  allowedPodLabels:
-    app.kubernetes.io/name: kairos-agent
+  allowedPodLabels: {}
+
+podLabels: {}
+runtimeSecretVersion: ""

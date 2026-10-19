@@ -25,7 +25,11 @@ spec:
     metadata:
       labels:
         {{- include "kairos.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
       annotations:
+        kairos.io/runtime-secret-version: {{ .Values.runtimeSecretVersion | quote }}
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
         checksum/secret-provider: {{ include (print $.Template.BasePath "/secrets.yaml") . | sha256sum }}
     spec:

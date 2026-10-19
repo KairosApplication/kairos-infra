@@ -20,6 +20,7 @@ mock_provider "aws" {
 }
 
 variables {
+  redis_auth_token             = "test-only-ephemeral-token-never-a-real-secret"
   aws_region                   = "us-east-1"
   aws_account_id               = "123456789012"
   cluster_public_access_cidrs  = ["203.0.113.10/32"]
@@ -126,5 +127,26 @@ run "new_service_and_optional_static_credentials" {
   assert {
     condition     = !aws_instance.runner[0].associate_public_ip_address && aws_instance.runner[0].metadata_options[0].http_tokens == "required"
     error_message = "Runner deve ser privado e exigir IMDSv2."
+  }
+}
+
+
+run "managed_redis_is_private_encrypted_and_replicated" {
+  command = plan
+  variables {
+    provision_redis  = true
+    redis_auth_token = "test-only-ephemeral-token-never-a-real-secret"
+  }
+  assert {
+    condition     = aws_elasticache_replication_group.redis[0].transit_encryption_enabled && aws_elasticache_replication_group.redis[0].at_rest_encryption_enabled
+    error_message = "Redis deve exigir TLS e criptografia em repouso."
+  }
+  assert {
+    condition     = aws_elasticache_replication_group.redis[0].num_cache_clusters == 2 && aws_elasticache_replication_group.redis[0].automatic_failover_enabled
+    error_message = "Redis deve ter replica e failover."
+  }
+  assert {
+    condition     = aws_vpc_security_group_ingress_rule.redis_from_eks[0].cidr_ipv4 == null && aws_vpc_security_group_ingress_rule.redis_from_eks[0].from_port == 6379
+    error_message = "Redis so pode aceitar trafego dos nos EKS."
   }
 }

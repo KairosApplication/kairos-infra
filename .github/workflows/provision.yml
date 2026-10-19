@@ -7,6 +7,33 @@ on:
     branches: [main]
   workflow_dispatch:
 
+  workflow_call:
+    inputs:
+      full-pipeline:
+        type: boolean
+        default: false
+      config-json:
+        type: string
+        default: ""
+      plan-role:
+        type: string
+        default: ""
+      apply-role:
+        type: string
+        default: ""
+    secrets:
+      AWS_ACCESS_KEY_ID:
+        required: false
+      AWS_SECRET_ACCESS_KEY:
+        required: false
+      AWS_SESSION_TOKEN:
+        required: false
+    outputs:
+      runner-instance-id:
+        value: ${{ jobs.apply.outputs.runner_instance_id }}
+      redis-endpoint:
+        value: ${{ jobs.apply.outputs.redis_endpoint }}
+
 permissions:
   contents: read
 
@@ -18,7 +45,7 @@ concurrency:
 jobs:
   plan:
     if: >-
-      vars.KAIROS_INFRA_ENABLED == 'true' &&
+      (inputs.full-pipeline || vars.KAIROS_INFRA_ENABLED == 'true') &&
       (github.event_name != 'pull_request' ||
        github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
@@ -34,7 +61,7 @@ jobs:
       AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
       AWS_REGION: ${{ vars.AWS_REGION }}
       TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
-      INFRA_CONFIG_JSON: ${{ vars.INFRA_CONFIG_JSON }}
+      INFRA_CONFIG_JSON: ${{ inputs.config-json || vars.INFRA_CONFIG_JSON }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -46,13 +73,20 @@ jobs:
       - run: python3 scripts/prepare-infra.py
       - uses: aws-actions/configure-aws-credentials@v5
         with:
-          role-to-assume: ${{ vars.AWS_INFRA_PLAN_ROLE_ARN }}
+          role-to-assume: ${{ inputs.plan-role || vars.AWS_INFRA_PLAN_ROLE_ARN }}
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
           aws-region: ${{ vars.AWS_REGION }}
           allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID }}
           unset-current-credentials: true
+      - name: Load ephemeral Redis authentication
+        if: inputs.full-pipeline
+        env:
+          CLUSTER_NAME: ${{ fromJSON(inputs.config-json || '{}').cluster_name }}
+        run: |
+          python3 -m pip install -r requirements-automation.txt
+          python3 scripts/redis_auth.py
       - name: Plan against the locked remote state
         run: |
           set -euo pipefail
@@ -76,6 +110,9 @@ jobs:
           if-no-files-found: error
 
   apply:
+    outputs:
+      runner_instance_id: ${{ steps.resources.outputs.runner_instance_id }}
+      redis_endpoint: ${{ steps.resources.outputs.redis_endpoint }}
     needs: plan
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
@@ -89,7 +126,7 @@ jobs:
       AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
       AWS_REGION: ${{ vars.AWS_REGION }}
       TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
-      INFRA_CONFIG_JSON: ${{ vars.INFRA_CONFIG_JSON }}
+      INFRA_CONFIG_JSON: ${{ inputs.config-json || vars.INFRA_CONFIG_JSON }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -111,13 +148,20 @@ jobs:
           path: ${{ runner.temp }}
       - uses: aws-actions/configure-aws-credentials@v5
         with:
-          role-to-assume: ${{ vars.AWS_INFRA_APPLY_ROLE_ARN }}
+          role-to-assume: ${{ inputs.apply-role || vars.AWS_INFRA_APPLY_ROLE_ARN }}
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
           aws-region: ${{ vars.AWS_REGION }}
           allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID }}
           unset-current-credentials: true
+      - name: Load ephemeral Redis authentication
+        if: inputs.full-pipeline
+        env:
+          CLUSTER_NAME: ${{ fromJSON(inputs.config-json || '{}').cluster_name }}
+        run: |
+          python3 -m pip install -r requirements-automation.txt
+          python3 scripts/redis_auth.py
       - name: Apply the reviewed plan
         run: |
           set -euo pipefail
@@ -127,10 +171,21 @@ jobs:
           python3 scripts/check-plan.py "$RUNNER_TEMP/plan.json"
           terraform -chdir=terraform/production apply -input=false -lock-timeout=5m "$RUNNER_TEMP/production.tfplan"
           terraform -chdir=terraform/production output -json services >> "$GITHUB_STEP_SUMMARY"
+      - name: Export non-secret resource outputs
+        id: resources
+        run: |
+          terraform -chdir=terraform/production output -json > "$RUNNER_TEMP/resources.json"
+          python3 - <<'PY'
+          import json,os
+          p=json.load(open(os.environ["RUNNER_TEMP"]+"/resources.json"))
+          with open(os.environ["GITHUB_OUTPUT"],"a") as f:
+              for output,key in [("runner_instance_id","deployment_runner_instance_id"),("redis_endpoint","redis_endpoint")]:
+                  f.write(output+"="+(p.get(key,{}).get("value") or "")+"\n")
+          PY
 
   platform:
     needs: [plan, apply]
-    if: vars.KAIROS_PLATFORM_ENABLED == 'true'
+    if: vars.KAIROS_PLATFORM_ENABLED == 'true' && !inputs.full-pipeline
     runs-on: [self-hosted, linux, x64, kairos-eks]
     timeout-minutes: 20
     environment: infrastructure-production

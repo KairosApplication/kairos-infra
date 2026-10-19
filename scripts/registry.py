@@ -30,8 +30,11 @@ def load_registry(path=None):
             raise ValueError('Nome Helm invalido.')
         if item.get('ecr_repository') != f'kairos/{name}':
             raise ValueError('ECR deve corresponder ao nome do servico.')
-        if item.get('build_kind', 'docker') not in ('java21', 'docker'):
-            raise ValueError('build_kind deve ser java21 ou docker.')
+        if item.get('build_kind', 'docker') not in ('java21', 'python312', 'docker'):
+            raise ValueError('build_kind deve ser java21, python312 ou docker.')
+        source_path = item.get('source_path', '.')
+        if not re.fullmatch(r'[a-zA-Z0-9_./-]+', source_path) or source_path.startswith('/') or '..' in source_path.split('/'):
+            raise ValueError('source_path deve ser relativo e permanecer no repositorio.')
         for field in ('values', 'fallback_dockerfile'):
             value = item.get(field)
             if field == 'fallback_dockerfile' and value is None:

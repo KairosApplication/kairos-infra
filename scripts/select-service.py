@@ -38,6 +38,7 @@ def main():
         "values": item["values"],
         "fallback_dockerfile": item["fallback_dockerfile"] or "",
         "source_sha": args.source_sha,
+        "source_path": item.get("source_path", "."),
         "build_kind": item.get("build_kind", "docker"),
     }
     output_file = os.environ.get("GITHUB_OUTPUT")

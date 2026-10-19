@@ -21,7 +21,7 @@ def module(name):
 class AutomationTests(unittest.TestCase):
     def test_generated_terraform_includes_only_enabled_services(self):
         services = terraform_services(load_registry())
-        self.assertEqual(set(services), {'mobile-api'})
+        self.assertEqual(set(services), {'mobile-api', 'redis-api'})
         self.assertEqual(services['mobile-api']['github_repository'], 'KairosApplication/kairos-springboot')
 
     def test_registry_rejects_duplicate_namespace_and_external_repository(self):
@@ -53,7 +53,7 @@ class AutomationTests(unittest.TestCase):
         config = {'cluster_admin_principal_arns': ['arn:aws:iam::123456789012:role/Admin'],
                   'cluster_public_access_cidrs': ['203.0.113.10/32']}
         result = prepare.configuration(config, load_registry(), '123456789012', 'us-east-1', 'kairos-state-test')
-        self.assertEqual(set(result['services']), {'mobile-api'})
+        self.assertEqual(set(result['services']), {'mobile-api', 'redis-api'})
         with self.assertRaises(ValueError):
             prepare.configuration(dict(config, services={}), load_registry(), '123456789012', 'us-east-1', 'kairos-state-test')
 
@@ -72,14 +72,15 @@ class AutomationTests(unittest.TestCase):
         registry = load_registry()
         config = {'mobile-api': {'publisher_role_arn': 'arn:aws:iam::123456789012:role/publish',
                                  'deployer_role_arn': 'arn:aws:iam::123456789012:role/deploy'}}
+        config['redis-api'] = dict(config['mobile-api'])
         seen = []
         def resolve(repository):
             seen.append(repository)
             return 'a' * 40
         result = deploy.matrix(registry, config, '123456789012', resolve)
-        self.assertEqual(seen, ['KairosApplication/kairos-springboot'])
+        self.assertEqual(seen, ['KairosApplication/kairos-springboot', 'KairosApplication/kairos-data'])
         self.assertEqual(result['include'][0]['source_sha'], 'a' * 40)
-        self.assertEqual(len(result['include']), 1)
+        self.assertEqual(len(result['include']), 2)
         with self.assertRaises(ValueError):
             deploy.matrix(registry, dict(config, **{'agent-api': config['mobile-api']}),
                           '123456789012', resolve)
