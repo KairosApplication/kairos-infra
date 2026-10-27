@@ -123,3 +123,12 @@ Provisionamento cria recursos cobrados na AWS: EKS, EC2, NAT, IPv4, armazenament
 Use branches `feat/`, `fix/`, `chore/`, `docs/`, `refactor/` ou `test/`, nunca `codex/`; commits em inglês no padrão `type(scope): description`. Labels devem refletir o diff: `terraform`, `github_actions`, `tests`, `security`, `documentation` e `chore` quando aplicáveis — não `java` por implantar uma API Java.
 
 Após o merge, atualizar esta seção de estado e os links da wiki para a main. README, guias versionados e wiki devem permanecer alinhados. Licença: [MIT](LICENSE).
+
+<!-- docs-bot:start -->
+## Documentação
+
+- [Futura API consumida pelo agente](docs/agent-api.md)
+- [Automacao AWS e deploy das APIs](docs/automation.md)
+- [Operacao](docs/operations.md)
+- [Instalacao](docs/setup.md)
+<!-- docs-bot:end -->
