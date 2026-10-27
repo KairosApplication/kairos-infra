@@ -44,13 +44,13 @@ Nunca imprimir seu conteudo em logs de diagnostico.
 
 ## Escala
 
-O deploy mobile usa duas replicas em nos separados e cria um PDB.
-A afinidade obrigatoria exige capacidade para dois nos e pode exigir um terceiro
-durante o rollout com maxSurge=1. Nao reduzir para uma replica esperando tolerancia
-a falha de no.
+O deploy mobile usa uma replica, sem afinidade obrigatoria nem PDB, enquanto
+o ajuste de concorrencia PostgreSQL da API nao estiver integrado. Essa configuracao
+nao oferece tolerancia a falha de no. A API Redis usa duas replicas em nos separados;
+a afinidade obrigatoria pode exigir um terceiro no durante o rollout com maxSurge=1.
 
-Integrar a PR da API com lock transacional no PostgresAuditInitializer antes
-de ativar o deploy. Redis compartilha sessoes entre replicas. Planejar a migracao
+Integrar o ajuste da API com lock transacional no PostgresAuditInitializer antes
+de aumentar as replicas do mobile. Redis compartilha sessoes entre replicas. Planejar a migracao
 futura do DDL de auditoria para Flyway e testar login/sessoes durante o rollout.
 
 Para HPA, instalar um metrics-server

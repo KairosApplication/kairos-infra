@@ -63,10 +63,10 @@ jobs:
       TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
       INFRA_CONFIG_JSON: ${{ inputs.config-json || vars.INFRA_CONFIG_JSON }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: 1.13.5
           terraform_wrapper: false
@@ -128,10 +128,10 @@ jobs:
       TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
       INFRA_CONFIG_JSON: ${{ inputs.config-json || vars.INFRA_CONFIG_JSON }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: 1.13.5
           terraform_wrapper: false
@@ -142,7 +142,7 @@ jobs:
           SOURCE_SHA: ${{ github.sha }}
         run: python3 scripts/check-source-revision.py
       - run: python3 scripts/prepare-infra.py
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: production-plan-${{ github.run_id }}
           path: ${{ runner.temp }}
@@ -196,7 +196,7 @@ jobs:
       AWS_REGION: ${{ vars.AWS_REGION }}
       EKS_CLUSTER_NAME: ${{ needs.plan.outputs.cluster_name }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: azure/setup-helm@v4.3.0

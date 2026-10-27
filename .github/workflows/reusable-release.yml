@@ -65,7 +65,7 @@ jobs:
       build_kind: ${{ steps.service.outputs.build_kind }}
       source_repository_name: ${{ steps.service.outputs.source_repository_name }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: KairosApplication/kairos-infra
           ref: ${{ github.sha }}
@@ -107,7 +107,7 @@ jobs:
       - name: Create source read token for private repositories
         if: vars.DEPLOY_APP_ID != ''
         id: app
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ vars.DEPLOY_APP_ID }}
           private-key: ${{ secrets.DEPLOY_APP_PRIVATE_KEY }}
@@ -115,7 +115,7 @@ jobs:
           repositories: ${{ needs.prepare.outputs.source_repository_name }}
           permission-contents: read
       - name: Checkout application commit
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: ${{ inputs.source-repository }}
           token: ${{ steps.app.outputs.token || github.token }}
@@ -127,7 +127,7 @@ jobs:
         working-directory: source
         run: git merge-base --is-ancestor HEAD origin/main
       - name: Checkout infrastructure
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: KairosApplication/kairos-infra
           ref: ${{ github.sha }}
@@ -159,7 +159,7 @@ jobs:
           fi
       - name: Set up Java
         if: needs.prepare.outputs.build_kind == 'java21' && steps.existing.outputs.exists != 'true'
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "21"
@@ -234,7 +234,7 @@ jobs:
       API_HOST: ${{ inputs.api-host }}
       CERTIFICATE_ARN: ${{ inputs.certificate-arn }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: KairosApplication/kairos-infra
           ref: ${{ github.sha }}
@@ -252,7 +252,7 @@ jobs:
       - name: Create source read token for private repositories
         if: vars.DEPLOY_APP_ID != ''
         id: app
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ vars.DEPLOY_APP_ID }}
           private-key: ${{ secrets.DEPLOY_APP_PRIVATE_KEY }}

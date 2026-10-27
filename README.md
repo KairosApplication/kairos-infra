@@ -106,9 +106,32 @@ actionlint -shellcheck= .github/workflows/*.yml
 Os applies dos testes Terraform sao simulados. Deploy real depende da configuracao
 inicial e cria recursos cobrados: EKS, nos, Redis, NAT, ALB, runner, segredos e armazenamento.
 
-## Contribuicao
+## Cuidados operacionais
 
-Usar branches feat/, fix/, chore/, docs/, refactor/ ou test/, sem prefixo codex/.
-Commits em ingles no formato type(scope): description. Manter guias e
-[wiki](https://github.com/KairosApplication/kairos-infra/wiki) alinhados apos o merge.
-Licenca [MIT](LICENSE).
+- PostgreSQL e externo e nao e provisionado nem migrado pelo fluxo. O Redis gerenciado e provisionado pelo fluxo completo e compartilhado entre os pods; `localhost` nao funciona entre pods.
+- O mobile comeca com uma replica e HPA desabilitado. A API Redis usa duas replicas em nos distintos; afinidade e `maxSurge=1` podem exigir um terceiro no durante rollout.
+- Helm usa `--atomic --wait`: tenta reverter upgrades com falha; uma instalação inicial com falha é removida. Rollback não desfaz mudanças no banco.
+- O reconcile também corrige drift; rollback manual pode ser sobrescrito pelo próximo ciclo. Coordenar a pausa da reconciliação e a revisão de origem antes de uma reversão operacional.
+- Rotação no Secrets Manager não atualiza variáveis já carregadas na JVM; após sincronizar, reiniciar pods gradualmente. Nunca imprimir segredos em logs.
+- CloudWatch recebe logs do control plane. Logs da aplicação ficam inicialmente em stdout/stderr; retenção centralizada exige coletor separado.
+- ALB/HTTPS exige certificado e DNS preparados; HPA exige fonte de métricas instalada e validada.
+
+Consulte [operação](docs/operations.md) antes de alterar capacidade, segredos ou releases.
+
+## Custos e contribuição
+
+Provisionamento cria recursos cobrados na AWS: EKS, EC2, NAT, IPv4, armazenamento, ECR, Secrets Manager, logs e ALB após deploy público. Revise o plano, estime custos e configure orçamento antes de ativar. Esta documentação não comprova disponibilidade, custo final ou implantação real.
+
+Use branches `feat/`, `fix/`, `chore/`, `docs/`, `refactor/` ou `test/`, nunca `codex/`; commits em inglês no padrão `type(scope): description`. Labels devem refletir o diff: `terraform`, `github_actions`, `tests`, `security`, `documentation` e `chore` quando aplicáveis — não `java` por implantar uma API Java.
+
+Após o merge, atualizar esta seção de estado e os links da wiki para a main. README, guias versionados e wiki devem permanecer alinhados. Licença: [MIT](LICENSE).
+
+<!-- docs-bot:start -->
+## Documentação
+
+- [Configuracao inicial do deploy completo](docs/full-deploy.md)
+- [Futura API consumida pelo agente](docs/agent-api.md)
+- [Automacao AWS e deploy das APIs](docs/automation.md)
+- [Operacao](docs/operations.md)
+- [Instalacao](docs/setup.md)
+<!-- docs-bot:end -->

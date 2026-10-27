@@ -52,7 +52,7 @@ jobs:
       matrix: ${{ steps.registry.outputs.matrix }}
       repositories: ${{ steps.repositories.outputs.repositories }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: List authorized source repositories
@@ -62,7 +62,7 @@ jobs:
       - name: Create source read token for private repositories
         if: vars.DEPLOY_APP_ID != ''
         id: app
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ vars.DEPLOY_APP_ID }}
           private-key: ${{ secrets.DEPLOY_APP_PRIVATE_KEY }}
