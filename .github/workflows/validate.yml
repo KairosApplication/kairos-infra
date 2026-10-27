@@ -16,7 +16,7 @@ concurrency:
 jobs:
   required-validation:
     name: Validate infrastructure configuration
-    needs: [terraform, manifests]
+    needs: [terraform, manifests, data-api]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 2
@@ -24,10 +24,12 @@ jobs:
       - name: Require all infrastructure checks to pass
         env:
           TERRAFORM_RESULT: ${{ needs.terraform.result }}
+          DATA_API_RESULT: ${{ needs.data-api.result }}
           MANIFESTS_RESULT: ${{ needs.manifests.result }}
         run: |
           test "$TERRAFORM_RESULT" = success
           test "$MANIFESTS_RESULT" = success
+          test "$DATA_API_RESULT" = success
 
   terraform:
     runs-on: ubuntu-latest
@@ -76,3 +78,41 @@ jobs:
           "$RUNNER_TEMP/actionlint" -shellcheck= .github/workflows/*.yml
       - name: Test rendered manifests and deployment boundaries
         run: python -m unittest discover -s tests -v
+
+  data-api:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          path: infrastructure
+      - uses: actions/checkout@v4
+        with:
+          repository: KairosApplication/kairos-data
+          ref: main
+          persist-credentials: false
+          path: source
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Verify actual Redis API source
+        working-directory: source/redis
+        run: |
+          python -m pip install -r requirements-dev.txt
+          python -m pytest -q
+      - name: Build and exercise the fallback image against Redis
+        run: |
+          set -euo pipefail
+          docker build -f infrastructure/examples/redis-api/Dockerfile -t kairos-redis-test source/redis
+          docker run -d --name redis -p 127.0.0.1:6379:6379 redis:7-alpine
+          docker run -d --name redis-api --network host \
+            -e REDIS_URL=redis://127.0.0.1:6379/0 \
+            -e KAIROS_INTERNAL_API_KEY=integration-test-key-only kairos-redis-test
+          curl --retry 20 --retry-delay 2 --retry-all-errors --fail http://127.0.0.1:8001/health
+          test "$(curl -s -o /dev/null -w '%{http_code}' 'http://127.0.0.1:8001/v1/restockings/week?company_id=1&employee_id=1')" = 401
+          curl --fail -H 'X-Internal-API-Key: integration-test-key-only' \
+            'http://127.0.0.1:8001/v1/restockings/week?company_id=1&employee_id=1'
+      - name: Show container failure diagnostics
+        if: failure()
+        run: docker logs redis-api || true

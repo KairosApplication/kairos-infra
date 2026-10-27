@@ -1,0 +1,193 @@
+name: Complete EKS deployment
+run-name: Complete EKS deployment by ${{ github.actor }}
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: kairos-complete-production
+  cancel-in-progress: false
+
+jobs:
+  bootstrap:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: infrastructure-production
+    outputs:
+      config: ${{ steps.prepare.outputs.config }}
+      deploy_config: ${{ steps.prepare.outputs.deploy_config }}
+      cluster: ${{ steps.prepare.outputs.cluster }}
+      plan_role: ${{ steps.prepare.outputs.plan_role }}
+      apply_role: ${{ steps.prepare.outputs.apply_role }}
+      platform_role: ${{ steps.prepare.outputs.platform_role }}
+    env:
+      AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+      INFRA_CONFIG_JSON: ${{ vars.INFRA_CONFIG_JSON }}
+      DEPLOY_CONFIG_JSON: ${{ vars.DEPLOY_CONFIG_JSON }}
+      RUNTIME_SECRETS_JSON: ${{ secrets.RUNTIME_SECRETS_JSON }}
+      RUNNER_APP_ID: ${{ vars.RUNNER_APP_ID }}
+      RUNNER_APP_PRIVATE_KEY: ${{ secrets.RUNNER_APP_PRIVATE_KEY }}
+      AWS_BOOTSTRAP_ROLE_ARN: ${{ vars.AWS_BOOTSTRAP_ROLE_ARN }}
+      AWS_STATIC_PRINCIPAL_ARN: ${{ vars.AWS_STATIC_PRINCIPAL_ARN }}
+      STATIC_AUTH: ${{ secrets.AWS_ACCESS_KEY_ID != '' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check setup before accessing AWS
+        run: python3 -c 'import sys,os; sys.path.insert(0,"scripts"); from pipeline_bootstrap import validate; validate(os.environ)'
+      - uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.AWS_BOOTSTRAP_ROLE_ARN }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID }}
+          unset-current-credentials: true
+      - run: python3 -m pip install -r requirements-automation.txt
+      - name: Prepare state bucket and workflow roles
+        id: prepare
+        run: python3 scripts/pipeline_bootstrap.py
+
+  infrastructure:
+    needs: bootstrap
+    uses: ./.github/workflows/provision.yml
+    with:
+      full-pipeline: true
+      config-json: ${{ needs.bootstrap.outputs.config }}
+      plan-role: ${{ needs.bootstrap.outputs.plan_role }}
+      apply-role: ${{ needs.bootstrap.outputs.apply_role }}
+    secrets: inherit
+
+  runner:
+    needs: [bootstrap, infrastructure]
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: infrastructure-production
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      CLUSTER_NAME: ${{ needs.bootstrap.outputs.cluster }}
+      RUNNER_INSTANCE_ID: ${{ needs.infrastructure.outputs.runner-instance-id }}
+      REDIS_ENDPOINT: ${{ needs.infrastructure.outputs.redis-endpoint }}
+      RUNTIME_SECRETS_JSON: ${{ secrets.RUNTIME_SECRETS_JSON }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.AWS_BOOTSTRAP_ROLE_ARN }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID }}
+          unset-current-credentials: true
+      - run: python3 -m pip install -r requirements-automation.txt
+      - name: Synchronize application runtime secrets
+        run: python3 scripts/sync_runtime.py
+      - name: Create runner registration token scope
+        id: app
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.RUNNER_APP_ID }}
+          private-key: ${{ secrets.RUNNER_APP_PRIVATE_KEY }}
+          owner: KairosApplication
+          repositories: kairos-infra
+          permission-administration: write
+      - name: Register and wait for the private runner
+        env:
+          RUNNER_GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: python3 scripts/register_runner.py
+
+  platform:
+    needs: [bootstrap, runner]
+    runs-on: [self-hosted, linux, x64, kairos-eks]
+    timeout-minutes: 20
+    environment: infrastructure-production
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      EKS_CLUSTER_NAME: ${{ needs.bootstrap.outputs.cluster }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: azure/setup-helm@v4.3.0
+        with:
+          version: v3.19.0
+      - uses: azure/setup-kubectl@v4
+        with:
+          version: v1.35.0
+      - uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ needs.bootstrap.outputs.platform_role }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID }}
+          unset-current-credentials: true
+      - run: bash scripts/bootstrap-platform.sh
+
+  applications:
+    needs: [bootstrap, platform]
+    uses: ./.github/workflows/reconcile.yml
+    with:
+      full-pipeline: true
+      cluster-name: ${{ needs.bootstrap.outputs.cluster }}
+      deploy-config: ${{ needs.bootstrap.outputs.deploy_config }}
+    secrets: inherit
+
+  verify:
+    needs: [bootstrap, applications]
+    runs-on: [self-hosted, linux, x64, kairos-eks]
+    timeout-minutes: 10
+    environment: infrastructure-production
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      EKS_CLUSTER_NAME: ${{ needs.bootstrap.outputs.cluster }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: azure/setup-kubectl@v4
+        with:
+          version: v1.35.0
+      - uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ needs.bootstrap.outputs.platform_role }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID }}
+          unset-current-credentials: true
+      - run: aws eks update-kubeconfig --name "$EKS_CLUSTER_NAME" --region "$AWS_REGION"
+      - run: python3 scripts/smoke.py
+
+  summary:
+    needs: [bootstrap, infrastructure, runner, platform, applications, verify]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report complete result
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json,os
+          results=json.loads(os.environ["RESULTS"])
+          with open(os.environ["GITHUB_STEP_SUMMARY"],"a") as f:
+              f.write("## Complete EKS deployment\n\n")
+              for name,item in results.items():
+                  f.write(f"- {name}: {item['result']}\n")
+          assert all(item["result"]=="success" for item in results.values()), "O fluxo completo nao terminou; veja a etapa acima."
+          PY

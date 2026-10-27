@@ -9,6 +9,27 @@ on:
     types: [completed]
     branches: [main]
 
+  workflow_call:
+    inputs:
+      full-pipeline:
+        type: boolean
+        default: false
+      cluster-name:
+        type: string
+        default: ""
+      deploy-config:
+        type: string
+        default: ""
+    secrets:
+      AWS_ACCESS_KEY_ID:
+        required: false
+      AWS_SECRET_ACCESS_KEY:
+        required: false
+      AWS_SESSION_TOKEN:
+        required: false
+      DEPLOY_APP_PRIVATE_KEY:
+        required: false
+
 permissions:
   contents: read
   id-token: write
@@ -20,7 +41,7 @@ concurrency:
 jobs:
   discover:
     if: >-
-      vars.KAIROS_RECONCILE_ENABLED == 'true' && github.ref == 'refs/heads/main' &&
+      (inputs.full-pipeline || vars.KAIROS_RECONCILE_ENABLED == 'true') && github.ref == 'refs/heads/main' &&
       (github.event_name != 'workflow_run' ||
        (github.event.workflow_run.conclusion == 'success' &&
         github.event.workflow_run.event != 'pull_request' &&
@@ -52,7 +73,7 @@ jobs:
         id: registry
         env:
           GH_TOKEN: ${{ steps.app.outputs.token || github.token }}
-          DEPLOY_CONFIG_JSON: ${{ vars.DEPLOY_CONFIG_JSON }}
+          DEPLOY_CONFIG_JSON: ${{ inputs.deploy-config || vars.DEPLOY_CONFIG_JSON }}
           AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
         run: python3 scripts/deployment-matrix.py
 
@@ -68,7 +89,7 @@ jobs:
       source-sha: ${{ matrix.source_sha }}
       aws-region: ${{ vars.AWS_REGION }}
       aws-account-id: ${{ vars.AWS_ACCOUNT_ID }}
-      cluster-name: ${{ vars.EKS_CLUSTER_NAME }}
+      cluster-name: ${{ inputs.cluster-name || vars.EKS_CLUSTER_NAME }}
       publisher-role-arn: ${{ matrix.publisher_role_arn }}
       deployer-role-arn: ${{ matrix.deployer_role_arn }}
       api-host: ${{ matrix.api_host }}

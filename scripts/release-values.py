@@ -19,7 +19,7 @@ def main():
         parser.error("Digest de imagem invalido.")
     if not re.fullmatch(r"[a-f0-9]{40}", args.source_sha):
         parser.error("SHA do codigo invalido.")
-    if not re.fullmatch(r"[0-9]{12}\.dkr\.ecr\.[a-z0-9-]+\.amazonaws\.com/kairos/(mobile-api|agent-api)", args.image_repository):
+    if not re.fullmatch(r"[0-9]{12}\.dkr\.ecr\.[a-z0-9-]+\.amazonaws\.com/kairos/[a-z][a-z0-9-]{0,38}[a-z0-9]", args.image_repository):
         parser.error("Repositorio ECR invalido.")
     overrides = {
         "image": {"repository": args.image_repository, "digest": args.digest},

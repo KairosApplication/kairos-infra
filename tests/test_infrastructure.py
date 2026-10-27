@@ -17,7 +17,7 @@ SHA = "b" * 40
 
 
 def render(service="mobile-api", extra=(), check=True):
-    namespace = "kairos-mobile-api" if service == "mobile-api" else "kairos-agent-api"
+    namespace = "kairos-" + service
     args = [
         HELM, "template", service, str(ROOT / "charts/kairos-api"),
         "--namespace", namespace,
@@ -63,8 +63,8 @@ class ManifestTests(unittest.TestCase):
 
     def test_service_selector_matches_pods(self):
         docs = render()
-        self.assertEqual(docs["Service"]["spec"]["selector"],
-                         docs["Deployment"]["spec"]["template"]["metadata"]["labels"])
+        self.assertTrue(docs["Service"]["spec"]["selector"].items() <=
+                        docs["Deployment"]["spec"]["template"]["metadata"]["labels"].items())
 
     def test_health_and_shutdown_do_not_restart_on_database_failure(self):
         docs = render()
@@ -75,11 +75,11 @@ class ManifestTests(unittest.TestCase):
         self.assertIn("tcpSocket", container["livenessProbe"])
         self.assertEqual(deployment["strategy"]["rollingUpdate"]["maxUnavailable"], 0)
         self.assertGreaterEqual(pod["terminationGracePeriodSeconds"], 30)
-        self.assertEqual(deployment['replicas'], 2)
+        self.assertEqual(deployment['replicas'], 1)
         self.assertEqual(deployment['minReadySeconds'], 30)
         self.assertEqual(container['lifecycle']['preStop']['sleep']['seconds'], 20)
-        self.assertIn('requiredDuringSchedulingIgnoredDuringExecution', pod['affinity']['podAntiAffinity'])
-        self.assertEqual(docs['PodDisruptionBudget']['spec']['maxUnavailable'], 1)
+        self.assertNotIn('affinity', pod)
+        self.assertNotIn('PodDisruptionBudget', docs)
 
     def test_credentials_are_scoped_and_not_in_configmap(self):
         docs = render()
@@ -88,7 +88,7 @@ class ManifestTests(unittest.TestCase):
         objects = yaml.safe_load(provider["parameters"]["objects"])
         self.assertEqual(objects[0]["objectName"], "kairos/production/mobile-api")
         keys = {item["key"] for item in provider["secretObjects"][0]["data"]}
-        self.assertEqual(keys, {"DB_URL", "DB_USERNAME", "DB_PASSWORD", "REDIS_URL"})
+        self.assertEqual(keys, {"DB_URL", "DB_USERNAME", "DB_PASSWORD", "REDIS_URL", "AUTH_SIGNING_KEY", "KAIROS_INTERNAL_API_KEY"})
         self.assertFalse(keys.intersection(docs["ConfigMap"]["data"]))
         pod = docs["Deployment"]["spec"]["template"]["spec"]
         self.assertEqual(pod["serviceAccountName"], "kairos-runtime")
@@ -112,7 +112,7 @@ class ManifestTests(unittest.TestCase):
 
     def test_only_mobile_is_enabled(self):
         services = json.loads((ROOT / "services.json").read_text())
-        self.assertEqual([name for name, data in services.items() if data["enabled"]], ["mobile-api"])
+        self.assertEqual([name for name, data in services.items() if data["enabled"]], ["mobile-api", "redis-api"])
         spec = importlib.util.spec_from_file_location("select_service", ROOT / "scripts/select-service.py")
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
@@ -131,12 +131,24 @@ class ManifestTests(unittest.TestCase):
         spec.loader.exec_module(module)
         registry = json.loads((ROOT / "services.json").read_text())
         items = module.resources(registry)["items"]
-        self.assertEqual(len(items), 2)
+        self.assertEqual(len(items), 4)
+        items = [i for i in items if i["metadata"]["namespace"] == "kairos-mobile-api"]
         self.assertTrue(all(item["metadata"]["namespace"] == "kairos-mobile-api" for item in items))
         role = next(item for item in items if item["kind"] == "Role")
         self.assertEqual(role["rules"][0]["resources"], ["secretproviderclasses"])
         binding = next(item for item in items if item["kind"] == "RoleBinding")
         self.assertEqual(binding["subjects"][0]["name"], "kairos:mobile-api:deploy")
+
+    def test_redis_api_is_private_and_only_mobile_labeled_pods_can_call_it(self):
+        docs = render("redis-api")
+        self.assertNotIn("Ingress", docs)
+        self.assertEqual(docs["Deployment"]["spec"]["replicas"], 2)
+        self.assertEqual(docs["Service"]["spec"]["type"], "ClusterIP")
+        allowed = docs["NetworkPolicy"]["spec"]["ingress"][0]["from"][0]
+        self.assertEqual(allowed["namespaceSelector"]["matchLabels"],
+                         {"kubernetes.io/metadata.name": "kairos-mobile-api"})
+        self.assertEqual(allowed["podSelector"]["matchLabels"], {"kairos.io/consumer": "mobile-api"})
+        self.assertEqual(docs["Deployment"]["spec"]["template"]["spec"]["containers"][0]["ports"][0]["containerPort"], 8001)
 
     def test_yaml_and_workflow_deployment_contract(self):
         for path in [*ROOT.glob(".github/**/*.yml"), *ROOT.glob("platform/*.yaml"),

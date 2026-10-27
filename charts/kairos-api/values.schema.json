@@ -117,7 +117,7 @@
         },
         "allowedPodLabels": {
           "type": "object",
-          "minProperties": 1
+          "minProperties": 0
         }
       }
     }

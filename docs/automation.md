@@ -1,5 +1,8 @@
 # Automacao AWS e deploy das APIs
 
+Para a primeira instalacao com um unico botao, seguir [Complete EKS deployment](full-deploy.md).
+As secoes abaixo descrevem os workflows avancados, configurados separadamente.
+
 ## Fluxos implementados
 
 | Workflow | Trigger | Resultado |
@@ -49,7 +52,7 @@ python scripts/registry.py > /tmp/kairos-services.json
 # em um arquivo .tfvars.json para usar com -var-file.
 ```
 
-A API do agente permanece desabilitada. O cadastro nao decide automaticamente
+mobile-api e redis-api (kairos-data/redis) estao habilitadas. A API do agente permanece desabilitada. O cadastro nao decide automaticamente
 se uma API nova ja esta pronta.
 
 ## Configuracao no GitHub
@@ -196,7 +199,7 @@ o manifesto desejado com o release Helm e registra `install`, `update` ou `curre
 no resumo da Action. Depois executa Helm para reconciliar tambem drift dos objetos
 vivos. Um manifesto inalterado nao exige reiniciar os pods.
 
-O mobile usa duas replicas em nos distintos, maxUnavailable=0, maxSurge=1,
+O mobile usa uma replica ate integrar o ajuste PostgreSQL; redis-api usa duas replicas em nos distintos, maxUnavailable=0, maxSurge=1,
 readiness estavel, PDB, espera antes de encerrar, shutdown graceful e drenagem ALB.
 O upgrade espera a disponibilidade e reverte o release em falha. Reserva de capacidade
 e necessaria: durante o rollout, a afinidade pode exigir um terceiro no.

@@ -1,8 +1,10 @@
 # Valores sem credenciais. A imagem/digest e o dominio sao injetados no deploy.
-replicaCount: 2
+replicaCount: 1
 availability:
-  requireSeparateNodes: true
+  requireSeparateNodes: false
 env:
+  KAIROS_REDIS_API_ENABLED: "true"
+  KAIROS_REDIS_API_URL: "http://redis-api.kairos-redis-api.svc.cluster.local"
   API_PORT: "8080"
   JPA_DDL_AUTO: validate
   MANAGEMENT_ENDPOINT_HEALTH_SHOW_DETAILS: never
@@ -14,8 +16,11 @@ env:
   JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=70.0"
 secrets:
   name: kairos/production/mobile-api
-  keys: [DB_URL, DB_USERNAME, DB_PASSWORD, REDIS_URL]
+  keys: [DB_URL, DB_USERNAME, DB_PASSWORD, REDIS_URL, AUTH_SIGNING_KEY, KAIROS_INTERNAL_API_KEY]
 ingress:
   enabled: true
 autoscaling:
   enabled: false
+
+podLabels:
+  kairos.io/consumer: mobile-api

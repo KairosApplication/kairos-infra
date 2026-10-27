@@ -1,0 +1,23 @@
+replicaCount: 2
+availability:
+  requireSeparateNodes: true
+containerPort: 8001
+env:
+  MAX_RESTOCKINGS_PER_WEEK: "500"
+secrets:
+  name: kairos/production/redis-api
+  keys: [REDIS_URL, KAIROS_INTERNAL_API_KEY]
+ingress:
+  enabled: false
+networkPolicy:
+  enabled: true
+  allowedNamespace: kairos-mobile-api
+  allowedPodLabels:
+    kairos.io/consumer: mobile-api
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: "1"
+    memory: 512Mi
