@@ -129,9 +129,9 @@ Após o merge, atualizar esta seção de estado e os links da wiki para a main. 
 <!-- docs-bot:start -->
 ## Documentação
 
-- [Configuracao inicial do deploy completo](docs/full-deploy.md)
 - [Futura API consumida pelo agente](docs/agent-api.md)
 - [Automacao AWS e deploy das APIs](docs/automation.md)
+- [Fluxo completo com um unico botao](docs/full-deploy.md)
 - [Operacao](docs/operations.md)
 - [Instalacao](docs/setup.md)
 <!-- docs-bot:end -->
