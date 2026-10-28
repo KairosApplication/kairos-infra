@@ -1,6 +1,7 @@
 # Fluxo completo com um unico botao
 
-Workflow: **Complete EKS deployment** em Actions do kairos-infra. Executar na main.
+Ponto de entrada recomendado: [Deploy APIs to EKS](deploy-apis.md), que executa as validacoes e chama
+o workflow **Complete EKS deployment** abaixo. Ambos executam somente na main.
 
 ## O que ele executa
 
