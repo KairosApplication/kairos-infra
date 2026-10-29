@@ -159,7 +159,7 @@ jobs:
           fi
       - name: Set up Java
         if: needs.prepare.outputs.build_kind == 'java21' && steps.existing.outputs.exists != 'true'
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: "21"
