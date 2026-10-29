@@ -96,7 +96,7 @@ jobs:
         run: python3 scripts/sync_runtime.py
       - name: Create runner registration token scope
         id: app
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ vars.RUNNER_APP_ID }}
           private-key: ${{ secrets.RUNNER_APP_PRIVATE_KEY }}
