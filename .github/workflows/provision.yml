@@ -102,7 +102,7 @@ jobs:
           python3 -c 'import json,os; p=json.load(open(os.environ["RUNNER_TEMP"]+"/plan.json")); print("name="+p["planned_values"]["outputs"]["cluster_name"]["value"])' >> "$GITHUB_OUTPUT"
       - name: Save the exact production plan
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: production-plan-${{ github.run_id }}
           path: ${{ runner.temp }}/production.tfplan
