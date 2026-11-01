@@ -81,6 +81,15 @@
         },
         "certificateArn": {
           "type": "string"
+        },
+        "entrypoint": {
+          "enum": [
+            "custom-domain",
+            "cloudfront"
+          ]
+        },
+        "cloudfrontPrefixListId": {
+          "type": "string"
         }
       }
     },
@@ -130,6 +139,9 @@
             "properties": {
               "enabled": {
                 "const": true
+              },
+              "entrypoint": {
+                "const": "custom-domain"
               }
             }
           }
@@ -171,6 +183,42 @@
               },
               "keys": {
                 "minItems": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "ingress": {
+            "properties": {
+              "enabled": {
+                "const": true
+              },
+              "entrypoint": {
+                "const": "cloudfront"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "ingress": {
+            "properties": {
+              "host": {
+                "const": ""
+              },
+              "certificateArn": {
+                "const": ""
+              },
+              "className": {
+                "const": "kairos-cloudfront"
+              },
+              "cloudfrontPrefixListId": {
+                "pattern": "^pl-[a-f0-9]+$"
               }
             }
           }

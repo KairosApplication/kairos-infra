@@ -20,7 +20,8 @@ def prepare(config, deploy, roles=None):
         resolved[name] = dict(values,
             publisher_role_arn=f"arn:aws:iam::{account}:role/{cluster}-{name}-publish",
             deployer_role_arn=f"arn:aws:iam::{account}:role/{cluster}-{name}-deploy")
-    output = {"config": json.dumps(config), "deploy_config": json.dumps(resolved),
+    cloudfront_services = [name for name,values in resolved.items() if values.get("entrypoint") == "cloudfront"]
+    output = {"cloudfront_services": json.dumps(cloudfront_services), "config": json.dumps(config), "deploy_config": json.dumps(resolved),
               "cluster": cluster, **{f"{key}_role": arn for key, arn in roles.items()}}
     with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as stream:
         for key, value in output.items():

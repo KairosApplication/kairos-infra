@@ -49,8 +49,12 @@ jobs:
       - run: terraform -chdir=terraform/bootstrap validate
       - run: terraform -chdir=terraform/production init -backend=false -input=false -lockfile=readonly
       - run: terraform -chdir=terraform/production validate
+      - run: terraform -chdir=terraform/edge init -backend=false -input=false -lockfile=readonly
+      - run: terraform -chdir=terraform/edge validate
       - name: Test plans without AWS credentials
-        run: terraform -chdir=terraform/production test -no-color
+        run: |
+          terraform -chdir=terraform/production test -no-color
+          terraform -chdir=terraform/edge test -no-color
 
   manifests:
     runs-on: ubuntu-latest

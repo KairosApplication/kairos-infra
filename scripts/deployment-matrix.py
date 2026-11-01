@@ -25,7 +25,7 @@ def matrix(registry, config, account, resolve=latest):
     entries = []
     for name, item in enabled.items():
         values = config[name]
-        if set(values) - {"publisher_role_arn", "deployer_role_arn", "api_host", "certificate_arn"}:
+        if set(values) - {"publisher_role_arn", "deployer_role_arn", "api_host", "certificate_arn", "entrypoint", "cloudfront_prefix_list_id"}:
             raise ValueError("Campo desconhecido na configuracao de deploy.")
         for key in ("publisher_role_arn", "deployer_role_arn"):
             if not re.fullmatch(rf"arn:aws:iam::{account}:role/[A-Za-z0-9_+=,.@/-]+", values.get(key, "")):
@@ -38,7 +38,9 @@ def matrix(registry, config, account, resolve=latest):
                         "publisher_role_arn": values["publisher_role_arn"],
                         "deployer_role_arn": values["deployer_role_arn"],
                         "api_host": values.get("api_host", ""),
-                        "certificate_arn": values.get("certificate_arn", "")})
+                        "certificate_arn": values.get("certificate_arn", ""),
+                        "entrypoint": values.get("entrypoint", "custom-domain"),
+                        "cloudfront_prefix_list_id": values.get("cloudfront_prefix_list_id", "")})
     return {"include": entries}
 
 

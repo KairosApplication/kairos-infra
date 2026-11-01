@@ -40,14 +40,13 @@ def validate(env):
         if network.version != 4 or network.prefixlen == 0:
             raise ValueError("Configure CIDRs IPv4 restritos, nunca 0.0.0.0/0.")
     deploy = json.loads(env["DEPLOY_CONFIG_JSON"])
-    public = deploy.get("mobile-api", {})
-    if not public.get("api_host") or not public.get("certificate_arn"):
-        raise ValueError("Configure api_host e certificate_arn validados para mobile-api.")
-    expected_prefix = f"arn:aws:acm:{env['AWS_REGION']}:{env['AWS_ACCOUNT_ID']}:certificate/"
-    if not public["certificate_arn"].startswith(expected_prefix):
-        raise ValueError("Certificado deve pertencer a mesma conta/regiao do ALB.")
-    if not re.fullmatch(r"[a-z0-9]+(?:[a-z0-9.-]*[a-z0-9])?", public["api_host"]):
-        raise ValueError("api_host invalido, informe somente o dominio.")
+    from registry import load_registry
+    from deployment_entrypoints import validate_entrypoint
+    enabled = {name for name,item in load_registry().items() if item["enabled"]}
+    if set(deploy) - enabled:
+        raise ValueError("DEPLOY_CONFIG_JSON contem servicos desconhecidos/desabilitados.")
+    for name in enabled:
+        validate_entrypoint(name, deploy.setdefault(name, {}), env["AWS_ACCOUNT_ID"], env["AWS_REGION"])
     if config.get("provision_redis", True) is not True:
         raise ValueError("O fluxo completo provisiona Redis. Para Redis externo, usar o fluxo avancado.")
     if config.get("redis_auth_version", 1) != 1:
@@ -81,10 +80,13 @@ def policies(account, region, bucket, cluster):
     state = [{"Effect": "Allow", "Action": ["s3:ListBucket", "s3:GetBucketLocation"],
               "Resource": f"arn:aws:s3:::{bucket}"},
              {"Effect": "Allow", "Action": ["s3:GetObject", "s3:PutObject"],
-              "Resource": f"arn:aws:s3:::{bucket}/production/terraform.tfstate"},
+              "Resource": [f"arn:aws:s3:::{bucket}/production/{key}.tfstate" for key in ("terraform", "cloudfront")]},
              {"Effect": "Allow", "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
-              "Resource": f"arn:aws:s3:::{bucket}/production/terraform.tfstate.tflock"}]
-    read = ["ec2:Describe*", "eks:Describe*", "eks:List*", "iam:Get*", "iam:List*",
+              "Resource": [f"arn:aws:s3:::{bucket}/production/{key}.tfstate.tflock" for key in ("terraform", "cloudfront")]}]
+    read = ["cloudfront:ListCachePolicies", "cloudfront:GetCachePolicy",
+            "cloudfront:ListOriginRequestPolicies", "cloudfront:GetOriginRequestPolicy",
+            "cloudfront:GetDistribution", "cloudfront:GetDistributionConfig",
+            "cloudfront:GetVpcOrigin", "cloudfront:ListTagsForResource", "elasticloadbalancing:DescribeLoadBalancers", "elasticloadbalancing:DescribeTags", "ec2:Describe*", "eks:Describe*", "eks:List*", "iam:Get*", "iam:List*",
             "ecr:Describe*", "ecr:List*", "ecr:GetRepositoryPolicy", "logs:Describe*",
             "logs:List*", "secretsmanager:DescribeSecret", "secretsmanager:GetResourcePolicy",
             "secretsmanager:ListSecrets", "elasticache:Describe*", "elasticache:ListTagsForResource",
@@ -99,9 +101,20 @@ def policies(account, region, bucket, cluster):
                      f"arn:aws:iam::{account}:instance-profile/{cluster}-*"]
     service_linked = {"Effect": "Allow", "Action": "iam:CreateServiceLinkedRole", "Resource": "*",
                       "Condition": {"StringEquals": {"iam:AWSServiceName":
-                          ["eks.amazonaws.com", "eks-nodegroup.amazonaws.com", "elasticache.amazonaws.com", "spot.amazonaws.com"]}}}
+                          ["vpcorigin.cloudfront.amazonaws.com", "eks.amazonaws.com", "eks-nodegroup.amazonaws.com", "elasticache.amazonaws.com", "spot.amazonaws.com"]}}}
     apply = state + [service_linked,{"Effect": "Allow", "Action": read + write, "Resource": "*"},
                      {"Effect": "Allow", "Action": ["iam:*"], "Resource": iam_resources}]
+    cloudfront_resources = [f"arn:aws:cloudfront::{account}:{kind}/*" for kind in ("distribution", "vpcorigin")]
+    apply += [{"Effect": "Allow", "Action": ["cloudfront:CreateDistribution", "cloudfront:CreateVpcOrigin"],
+               "Resource": "*",
+               "Condition": {"StringEquals": {"aws:RequestTag/Project": "Kairos"}}},
+              {"Effect": "Allow", "Action": "cloudfront:TagResource",
+               "Resource": cloudfront_resources,
+               "Condition": {"StringEquals": {"aws:RequestTag/Project": "Kairos"}}},
+              {"Effect": "Allow", "Action": ["cloudfront:UpdateDistribution", "cloudfront:UpdateVpcOrigin",
+                                               "cloudfront:TagResource", "cloudfront:UntagResource"],
+               "Resource": cloudfront_resources,
+               "Condition": {"StringEquals": {"aws:ResourceTag/Project": "Kairos"}}}]
     platform = [{"Effect": "Allow", "Action": ["eks:DescribeCluster"],
                  "Resource": f"arn:aws:eks:{region}:{account}:cluster/{cluster}"}]
     redis_password = {"Effect": "Allow", "Action": ["secretsmanager:GetSecretValue"],
@@ -194,14 +207,34 @@ def main():
     database = dict(previous, **supplied)
     if any(not database.get(field) for field in ("DB_URL", "DB_USERNAME", "DB_PASSWORD")):
         raise ValueError("Configure DB_URL, DB_USERNAME e DB_PASSWORD no Secret RUNTIME_SECRETS_JSON antes de iniciar.")
-    public = deploy["mobile-api"]
-    certificate = boto3.client("acm").describe_certificate(CertificateArn=public["certificate_arn"])["Certificate"]
-    if certificate["Status"] != "ISSUED":
-        raise ValueError("O certificado ACM ainda nao foi validado.")
-    host = public["api_host"]
-    if not any(host == name or (name.startswith("*.") and host.split(".", 1)[-1] == name[2:])
-               for name in certificate["SubjectAlternativeNames"]):
-        raise ValueError("Certificado ACM nao cobre api_host.")
+    if load_registry().get("agent-api", {}).get("enabled"):
+        try:
+            previous_agent = json.loads(secret_client.get_secret_value(
+                SecretId="kairos/production/agent-api")["SecretString"])
+        except secret_client.exceptions.ResourceNotFoundException:
+            previous_agent = {}
+        from sync_runtime import merge_agent_runtime, parse_agent_input
+        merge_agent_runtime(previous_agent,
+            parse_agent_input(env.get("AGENT_RUNTIME_SECRETS_JSON")), "preflight-token-validation-only-32chars")
+    cloudfront = [values for values in deploy.values() if values.get("entrypoint") == "cloudfront"]
+    if cloudfront:
+        lists = boto3.client("ec2").describe_managed_prefix_lists(Filters=[{
+            "Name": "prefix-list-name", "Values": ["com.amazonaws.global.cloudfront.origin-facing"]
+        }])["PrefixLists"]
+        if len(lists) != 1:
+            raise ValueError("Prefix list gerenciada CloudFront nao encontrada.")
+        for values in cloudfront:
+            values["cloudfront_prefix_list_id"] = lists[0]["PrefixListId"]
+    for public in deploy.values():
+        if public.get("entrypoint") != "custom-domain":
+            continue
+        certificate = boto3.client("acm").describe_certificate(CertificateArn=public["certificate_arn"])["Certificate"]
+        if certificate["Status"] != "ISSUED":
+            raise ValueError("O certificado ACM ainda nao foi validado.")
+        host = public["api_host"]
+        if not any(host == name or (name.startswith("*.") and host.split(".", 1)[-1] == name[2:])
+                   for name in certificate["SubjectAlternativeNames"]):
+            raise ValueError("Certificado ACM nao cobre api_host.")
     provider = config.get("github_oidc_provider_arn")
     if not provider:
         providers = iam.list_open_id_connect_providers()["OpenIDConnectProviderList"]

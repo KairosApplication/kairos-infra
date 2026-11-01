@@ -43,7 +43,8 @@ E o mesmo botao para os dois casos:
 
 Reutiliza a configuracao de [full-deploy.md](full-deploy.md). Ainda sao necessarios
 conta/regiao, bucket escolhido, JSONs de configuracao, identidade AWS inicial,
-GitHub App do runner, PostgreSQL existente e certificado ACM validado.
+GitHub App do runner e PostgreSQL existente. Com entrypoint=cloudfront, a URL
+HTTPS e o certificado sao fornecidos pela AWS; com dominio proprio, exigir ACM validado.
 O workflow verifica a presenca do par de Secrets AWS ou de uma role OIDC.
 Nao colocar valores de credenciais no YAML ou em Variables.
 
@@ -57,7 +58,9 @@ A permissao id-token:write e os Secrets sao encaminhados ao job de deploy.
 As filas das validacoes separam a CI normal do workflow orquestrador para que
 um push na main nao cancele as verificacoes de uma implantacao em andamento.
 
-DNS publico, certificado e PostgreSQL externo continuam sendo pre-requisitos.
+PostgreSQL externo continua sendo pre-requisito. DNS proprio e certificado ACM
+sao necessarios apenas no modo custom-domain. No modo cloudfront, o fluxo
+provisiona o endereco HTTPS gerenciado depois das APIs.
 A integracao de negocio entre APIs precisa estar publicada na main da API
 principal. O teste final do fluxo existente verifica rede/autenticacao/Redis.
 

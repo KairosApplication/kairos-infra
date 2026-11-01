@@ -39,6 +39,12 @@ on:
       certificate-arn:
         type: string
         default: ""
+      entrypoint:
+        type: string
+        default: custom-domain
+      cloudfront-prefix-list-id:
+        type: string
+        default: ""
       source-repository:
         type: string
         required: true
@@ -63,6 +69,7 @@ jobs:
       source_sha: ${{ steps.service.outputs.source_sha }}
       source_path: ${{ steps.service.outputs.source_path }}
       build_kind: ${{ steps.service.outputs.build_kind }}
+      maven_test_profile: ${{ steps.service.outputs.maven_test_profile }}
       source_repository_name: ${{ steps.service.outputs.source_repository_name }}
     steps:
       - uses: actions/checkout@v7
@@ -165,10 +172,17 @@ jobs:
           java-version: "21"
           cache: maven
           cache-dependency-path: source/pom.xml
-      - name: Verify Java API with PostgreSQL before publishing
+      - name: Verify Java API before publishing
         if: needs.prepare.outputs.build_kind == 'java21' && steps.existing.outputs.exists != 'true'
         working-directory: source
-        run: bash ./mvnw --batch-mode --no-transfer-progress -Ppostgres-tests clean verify
+        env:
+          MAVEN_TEST_PROFILE: ${{ needs.prepare.outputs.maven_test_profile }}
+        run: |
+          args=(--batch-mode --no-transfer-progress)
+          if [[ -n "$MAVEN_TEST_PROFILE" ]]; then
+            args+=("-P$MAVEN_TEST_PROFILE")
+          fi
+          bash ./mvnw "${args[@]}" clean verify
       - uses: actions/setup-python@v5
         if: needs.prepare.outputs.build_kind == 'python312' && steps.existing.outputs.exists != 'true'
         with:
@@ -233,6 +247,8 @@ jobs:
       SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
       API_HOST: ${{ inputs.api-host }}
       CERTIFICATE_ARN: ${{ inputs.certificate-arn }}
+      ENTRYPOINT: ${{ inputs.entrypoint }}
+      CLOUDFRONT_PREFIX_LIST_ID: ${{ inputs.cloudfront-prefix-list-id }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -287,6 +303,7 @@ jobs:
             --image-repository "$IMAGE_REPOSITORY" --digest "$IMAGE_DIGEST" \
             --source-sha "$SOURCE_SHA" --region "$AWS_REGION" \
             --host "$API_HOST" --certificate-arn "$CERTIFICATE_ARN" \
+            --entrypoint "$ENTRYPOINT" --cloudfront-prefix-list-id "$CLOUDFRONT_PREFIX_LIST_ID" \
             --output "$RUNNER_TEMP/kairos-release.json"
       - name: Require platform and populated runtime secrets
         env:

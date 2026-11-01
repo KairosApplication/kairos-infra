@@ -1,51 +1,62 @@
-# Futura API consumida pelo agente
+# API de dados para o agente de IA
 
-Esta e uma API separada da API mobile. O agente de IA e o consumidor;
-este repo nao cria um agente nem escolhe seu provedor de IA.
+Origem: KairosApplication/kairos-api-ia, Java 21/Spring Boot, MongoDB.
+Cadastrada e habilitada como agent-api em services.json. Todo deploy ocorre
+no kairos-infra; o repositorio da API nao precisa de um workflow de deploy.
 
-A API do agente esta desabilitada em services.json e nao consta da configuracao
-Terraform inicial. Seu modelo Helm nao cria Ingress publico.
+## Acesso
 
-Para habilitar quando a aplicacao estiver pronta:
+Para o agente fora da AWS, configurar DEPLOY_CONFIG_JSON com:
 
-1. Confirmar o repositorio real, Dockerfile, comando de testes, porta e endpoint
-   de prontidao. O modelo usa porta 8080 e /health, que devem ser ajustados.
-2. Ajustar a imagem para funcionar com usuario 10001 e filesystem somente leitura,
-   ou revisar o chart para o runtime real.
-3. Informar source_repository e enabled: true para agent-api em services.json.
-   Atualizar o teste de APIs habilitadas para refletir essa ativacao.
-4. Adicionar agent-api em services no terraform.tfvars, com o mesmo namespace
-   kairos-agent-api, e aplicar o plano revisado.
-5. Aplicar platform/agent-namespaces.yaml e executar scripts/bootstrap-rbac.py
-   como administrador para criar as permissoes complementares de deploy.
-6. Preencher o segredo kairos/production/agent-api e revisar secrets.keys
-   em environments/production/agent-api.yaml. AGENT_API_TOKEN e apenas um
-   nome de exemplo, nao uma autenticacao ja implementada.
-7. Configurar o servico em DEPLOY_CONFIG_JSON do kairos-infra e habilitar
-   somente depois de testar a API. Nao instalar chamador de deploy na API.
-
-
-O endereco interno sera:
-
-```text
-http://agent-api.kairos-agent-api.svc.cluster.local
+```json
+{
+  "mobile-api": {"entrypoint":"cloudfront"},
+  "agent-api": {"entrypoint":"cloudfront"}
+}
 ```
 
-A NetworkPolicy permite consumidores no namespace kairos-agent-client
-com label app.kubernetes.io/name: kairos-agent. O controller de politicas de rede
-precisa estar habilitado, conforme o bootstrap. Verificar em um cluster real
-que uma chamada de um namespace nao autorizado e bloqueada antes de liberar uso.
+Cada API tem URL propria https://....cloudfront.net, certificado AWS e ALB
+privado. O fluxo cria/reutiliza as distribuicoes e publica as URLs no resumo.
+Nao precisa comprar dominio ou emitir certificado ACM. As respostas nao sao
+armazenadas no cache. Cookies, token Bearer, query strings e metodos HTTP sao
+encaminhados. A API Redis continua privada dentro do EKS.
 
-A API ainda precisa implementar autenticacao de servico e autorizacao das
-operacoes do agente. Acesso privado nao substitui essas verificacoes.
+O GET /health e publico e verifica o MongoDB. Rotas /api/v1/** exigem
+Authorization: Bearer <API_ACCESS_TOKEN>. O token e uma credencial de servico,
+nao uma chave de modelo de IA nem login de usuario. O bootstrap gera um token
+estavel no Secrets Manager; ele nao aparece em outputs ou logs.
 
-Se o agente rodar fora do cluster, decidir a conectividade: rede privada/VPN
-ou uma entrada externa autenticada e com TLS. O modelo atual aceita o primeiro
-cenario e precisa de ajuste para o segundo. Nao habilitar um Ingress publico
-sem definir essa autenticacao.
+## Conexao MongoDB
 
-## Atualizacao independente
+Secret GitHub AGENT_RUNTIME_SECRETS_JSON aceita uma URI MongoDB direta ou:
 
-Cada API recebe namespace, imagem ECR, roles de publicacao/deploy e segredo
-proprios. Uma release de mobile-api nao altera a imagem de agent-api.
-Elas compartilham apenas o cluster e a rede.
+```json
+{"MONGODB_URI":"mongodb+srv://...","MONGODB_DATABASE":"kairos_ai"}
+```
+
+Nao colocar URI real em arquivos versionados. Quando a URI direta nao inclui
+banco, usa kairos_ai, o banco verificado documentado no repositorio da API.
+Em JSON, configurar o banco explicitamente ou inclui-lo no caminho da URI.
+API_ACCESS_TOKEN e opcional no JSON: se fornecido, deve ter 32+ caracteres.
+Valores existentes no Secrets Manager sao preservados quando omitidos.
+
+O fluxo valida a configuracao antes de provisionar e sincroniza somente os
+segredos dessa API em kairos/production/agent-api. O pod usa identidade propria,
+sem acesso aos segredos PostgreSQL. Se o provedor MongoDB restringir IPs, liberar
+os IPs publicos /32 dos NATs AWS. Nao e preciso nem recomendado liberar 0.0.0.0/0.
+A conectividade real/autenticacao sao verificadas pela inicializacao e readiness.
+
+## Build e comportamento
+
+A CI central executa mvnw clean verify com Java 21, sem o perfil postgres-tests.
+O Dockerfile esta em examples/agent-api/Dockerfile e cria processo nao root.
+A porta e 8081; o schema e as collections MongoDB precisam existir previamente.
+
+Esta API gerencia os dados de IA existentes; nao executa inferencia/agentes.
+Escritas permanecem desabilitadas conforme o padrao da API
+(APP_MONGODB_WRITES_ENABLED=false). Habilitar CRUD exige revisar essa opcao e
+as permissoes MongoDB para o banco desejado. O deploy nao altera os dados.
+
+Executar Actions > Deploy APIs to EKS na main depois de revisar/integrar o codigo
+e concluir Variables, Secrets e autenticacao AWS. Release por SHA/digest,
+readiness e rollback Helm seguem o mesmo fluxo das demais APIs.
