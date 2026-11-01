@@ -3,6 +3,20 @@ run-name: Complete EKS deployment by ${{ github.actor }}
 
 on:
   workflow_dispatch:
+  workflow_call:
+    secrets:
+      AWS_ACCESS_KEY_ID:
+        required: false
+      AWS_SECRET_ACCESS_KEY:
+        required: false
+      AWS_SESSION_TOKEN:
+        required: false
+      RUNNER_APP_PRIVATE_KEY:
+        required: false
+      RUNTIME_SECRETS_JSON:
+        required: false
+      DEPLOY_APP_PRIVATE_KEY:
+        required: false
 
 permissions:
   contents: read

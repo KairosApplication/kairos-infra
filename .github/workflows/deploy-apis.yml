@@ -1,0 +1,84 @@
+name: Deploy APIs to EKS
+run-name: Create or update Kairos APIs on EKS by ${{ github.actor }}
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # Different from the nested full/provision/reconcile locks to avoid deadlocks.
+  group: kairos-api-orchestrator-production
+  cancel-in-progress: false
+
+jobs:
+  configuration:
+    name: Check deployment setup
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: infrastructure-production
+    env:
+      AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+      INFRA_CONFIG_JSON: ${{ vars.INFRA_CONFIG_JSON }}
+      DEPLOY_CONFIG_JSON: ${{ vars.DEPLOY_CONFIG_JSON }}
+      RUNNER_APP_ID: ${{ vars.RUNNER_APP_ID }}
+      RUNNER_APP_PRIVATE_KEY: ${{ secrets.RUNNER_APP_PRIVATE_KEY }}
+      AWS_BOOTSTRAP_ROLE_ARN: ${{ vars.AWS_BOOTSTRAP_ROLE_ARN }}
+      AWS_STATIC_PRINCIPAL_ARN: ${{ vars.AWS_STATIC_PRINCIPAL_ARN }}
+      HAS_AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID != '' }}
+      HAS_AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY != '' }}
+      HAS_AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN != '' }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Validate configuration without changing AWS
+        run: python3 scripts/check_deploy_setup.py
+
+  repository-validation:
+    name: Validate repository
+    needs: configuration
+    uses: ./.github/workflows/kairos-validation.yml
+
+  infrastructure-validation:
+    name: Validate infrastructure and Redis API
+    needs: configuration
+    uses: ./.github/workflows/validate.yml
+
+  secret-scan:
+    name: Check for exposed secrets
+    needs: configuration
+    uses: ./.github/workflows/secret-scan.yml
+
+  deploy:
+    name: Create or update infrastructure and APIs
+    needs: [configuration, repository-validation, infrastructure-validation, secret-scan]
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/full-deploy.yml
+    secrets:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
+      RUNNER_APP_PRIVATE_KEY: ${{ secrets.RUNNER_APP_PRIVATE_KEY }}
+      RUNTIME_SECRETS_JSON: ${{ secrets.RUNTIME_SECRETS_JSON }}
+      DEPLOY_APP_PRIVATE_KEY: ${{ secrets.DEPLOY_APP_PRIVATE_KEY }}
+
+  summary:
+    name: Deployment result
+    needs: [configuration, repository-validation, infrastructure-validation, secret-scan, deploy]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Report every required stage
+        env:
+          DEPLOYMENT_RESULTS: ${{ toJSON(needs) }}
+        run: python3 scripts/deployment_summary.py

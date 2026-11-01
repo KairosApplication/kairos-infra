@@ -5,7 +5,9 @@ Redis gerenciado, ECR, Helm e GitHub Actions.
 
 ## Fluxo principal
 
-**Actions > Complete EKS deployment > Run workflow > main**
+[Orquestracao de validacao e deploy](docs/deploy-apis.md): um botao para instalar ou atualizar.
+
+**Actions > Deploy APIs to EKS > Run workflow > main**
 
 [Guia de configuracao inicial](docs/full-deploy.md): Variables, Secrets, GitHub App,
 permissoes AWS e limites do fluxo.
@@ -49,7 +51,8 @@ flowchart LR
 
 | Workflow | Uso |
 | --- | --- |
-| Complete EKS deployment | Caminho principal: primeira instalacao e atualizacao completa. |
+| Deploy APIs to EKS | Valida configuracao, repositorio, infraestrutura e segredos, e espera todo o deploy terminar. |
+| Complete EKS deployment | Etapa reutilizada pelo orquestrador para provisionar e implantar. |
 | Plan and provision AWS infrastructure | Operacao avancada da infra; exige flags e roles configuradas separadamente. |
 | Deploy connected services | Operacao avancada de aplicacoes; manual ou periodica, apos configuracao. |
 | Validate infrastructure | Terraform simulado, scripts, Helm e build/testes reais da API Redis sem AWS. |
