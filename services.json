@@ -7,17 +7,18 @@
     "release": "mobile-api",
     "ecr_repository": "kairos/mobile-api",
     "values": "environments/production/mobile-api.yaml",
-    "fallback_dockerfile": "examples/mobile-api/Dockerfile"
+    "fallback_dockerfile": "examples/mobile-api/Dockerfile",
+    "maven_test_profile": "postgres-tests"
   },
   "agent-api": {
-    "enabled": false,
-    "build_kind": "docker",
-    "source_repository": null,
+    "enabled": true,
+    "build_kind": "java21",
+    "source_repository": "KairosApplication/kairos-api-ia",
     "namespace": "kairos-agent-api",
     "release": "agent-api",
     "ecr_repository": "kairos/agent-api",
     "values": "environments/production/agent-api.yaml",
-    "fallback_dockerfile": null
+    "fallback_dockerfile": "examples/agent-api/Dockerfile"
   },
   "redis-api": {
     "enabled": true,

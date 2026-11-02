@@ -19,6 +19,8 @@ secrets:
   keys: []
 ingress:
   enabled: false
+  entrypoint: custom-domain
+  cloudfrontPrefixListId: ""
   className: kairos-public
   host: ""
   certificateArn: ""

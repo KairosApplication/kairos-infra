@@ -40,6 +40,7 @@ def main():
         "source_sha": args.source_sha,
         "source_path": item.get("source_path", "."),
         "build_kind": item.get("build_kind", "docker"),
+        "maven_test_profile": item.get("maven_test_profile", ""),
     }
     output_file = os.environ.get("GITHUB_OUTPUT")
     if output_file:

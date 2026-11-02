@@ -32,6 +32,8 @@ def render(service="mobile-api", extra=(), check=True):
             "--set-string", "ingress.host=api.kairos.example",
             "--set-string", "ingress.certificateArn=arn:aws:acm:us-east-1:123456789012:certificate/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
         ]
+    if service == "agent-api":
+        args += ["--set-string", "ingress.cloudfrontPrefixListId=pl-0123456789abcdef0"]
     result = subprocess.run(args + list(extra), text=True, capture_output=True, check=check)
     if check:
         return {doc["kind"]: doc for doc in yaml.safe_load_all(result.stdout) if doc}
@@ -50,16 +52,37 @@ class ManifestTests(unittest.TestCase):
         self.assertTrue(container["image"].endswith("@" + DIGEST))
         self.assertEqual(docs["Service"]["spec"]["type"], "ClusterIP")
 
-    def test_agent_has_no_external_entry_and_restricts_consumers(self):
+    def test_cloudfront_uses_private_origin_without_custom_certificate(self):
+        docs = render(extra=["--set-string", "ingress.entrypoint=cloudfront",
+                             "--set-string", "ingress.className=kairos-cloudfront",
+                             "--set-string", "ingress.host=", "--set-string", "ingress.certificateArn=",
+                             "--set-string", "ingress.cloudfrontPrefixListId=pl-0123456789abcdef0"])
+        ingress = docs["Ingress"]
+        annotations = ingress["metadata"]["annotations"]
+        self.assertNotIn("host", ingress["spec"]["rules"][0])
+        self.assertEqual(ingress["spec"]["ingressClassName"], "kairos-cloudfront")
+        self.assertNotIn("alb.ingress.kubernetes.io/certificate-arn", annotations)
+        self.assertEqual(annotations["alb.ingress.kubernetes.io/inbound-cidrs"], "127.0.0.1/32")
+        self.assertEqual(annotations["alb.ingress.kubernetes.io/security-group-prefix-lists"],
+                         "pl-0123456789abcdef0")
+        self.assertEqual(json.loads(annotations["alb.ingress.kubernetes.io/listen-ports"]), [{"HTTP":80}])
+        classes = list(yaml.safe_load_all((ROOT / "platform/ingress-class.yaml").read_text()))
+        private = next(c for c in classes if c["kind"] == "IngressClassParams"
+                       and c["metadata"]["name"] == "kairos-cloudfront")
+        self.assertEqual(private["spec"]["scheme"], "internal")
+
+    def test_agent_has_private_alb_for_cloudfront_and_bearer_credentials(self):
         docs = render("agent-api")
-        self.assertNotIn("Ingress", docs)
-        self.assertEqual(docs["Service"]["spec"]["type"], "ClusterIP")
-        source = docs["NetworkPolicy"]["spec"]["ingress"][0]["from"][0]
-        self.assertEqual(source["namespaceSelector"]["matchLabels"],
-                         {"kubernetes.io/metadata.name": "kairos-agent-client"})
-        self.assertEqual(source["podSelector"]["matchLabels"],
-                         {"app.kubernetes.io/name": "kairos-agent"})
+        ingress = docs["Ingress"]
+        self.assertEqual(ingress["spec"]["ingressClassName"], "kairos-cloudfront")
+        self.assertNotIn("host", ingress["spec"]["rules"][0])
+        self.assertEqual(json.loads(ingress["metadata"]["annotations"]["alb.ingress.kubernetes.io/listen-ports"]), [{"HTTP":80}])
         self.assertEqual(docs["Deployment"]["metadata"]["namespace"], "kairos-agent-api")
+        pod=docs["Deployment"]["spec"]["template"]["spec"]
+        self.assertEqual(pod["containers"][0]["ports"][0]["containerPort"],8081)
+        self.assertEqual(docs["Service"]["spec"]["type"],"ClusterIP")
+        self.assertIn("API_ACCESS_TOKEN",str(docs["SecretProviderClass"]))
+        self.assertIn("MONGODB_URI",str(docs["SecretProviderClass"]))
 
     def test_service_selector_matches_pods(self):
         docs = render()
@@ -110,9 +133,9 @@ class ManifestTests(unittest.TestCase):
         result = render(extra=["--set-string", "image.digest=latest"], check=False)
         self.assertNotEqual(result.returncode, 0)
 
-    def test_only_mobile_is_enabled(self):
+    def test_main_redis_and_agent_are_enabled(self):
         services = json.loads((ROOT / "services.json").read_text())
-        self.assertEqual([name for name, data in services.items() if data["enabled"]], ["mobile-api", "redis-api"])
+        self.assertEqual([name for name, data in services.items() if data["enabled"]], ["mobile-api", "agent-api", "redis-api"])
         spec = importlib.util.spec_from_file_location("select_service", ROOT / "scripts/select-service.py")
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
@@ -131,7 +154,7 @@ class ManifestTests(unittest.TestCase):
         spec.loader.exec_module(module)
         registry = json.loads((ROOT / "services.json").read_text())
         items = module.resources(registry)["items"]
-        self.assertEqual(len(items), 4)
+        self.assertEqual(len(items), 6)
         items = [i for i in items if i["metadata"]["namespace"] == "kairos-mobile-api"]
         self.assertTrue(all(item["metadata"]["namespace"] == "kairos-mobile-api" for item in items))
         role = next(item for item in items if item["kind"] == "Role")

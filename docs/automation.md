@@ -52,7 +52,7 @@ python scripts/registry.py > /tmp/kairos-services.json
 # em um arquivo .tfvars.json para usar com -var-file.
 ```
 
-mobile-api e redis-api (kairos-data/redis) estao habilitadas. A API do agente permanece desabilitada. O cadastro nao decide automaticamente
+mobile-api, agent-api (kairos-api-ia) e redis-api (kairos-data/redis) estao habilitadas. O cadastro nao decide automaticamente
 se uma API nova ja esta pronta.
 
 ## Configuracao no GitHub

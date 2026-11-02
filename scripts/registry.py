@@ -32,6 +32,9 @@ def load_registry(path=None):
             raise ValueError('ECR deve corresponder ao nome do servico.')
         if item.get('build_kind', 'docker') not in ('java21', 'python312', 'docker'):
             raise ValueError('build_kind deve ser java21, python312 ou docker.')
+        profile = item.get('maven_test_profile', '')
+        if profile and (item.get('build_kind') != 'java21' or not re.fullmatch(r'[A-Za-z0-9_-]+', profile)):
+            raise ValueError('maven_test_profile deve ser um perfil Maven simples de uma API Java.')
         source_path = item.get('source_path', '.')
         if not re.fullmatch(r'[a-zA-Z0-9_./-]+', source_path) or source_path.startswith('/') or '..' in source_path.split('/'):
             raise ValueError('source_path deve ser relativo e permanecer no repositorio.')

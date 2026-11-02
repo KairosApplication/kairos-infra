@@ -15,6 +15,8 @@ on:
         required: false
       RUNTIME_SECRETS_JSON:
         required: false
+      AGENT_RUNTIME_SECRETS_JSON:
+        required: false
       DEPLOY_APP_PRIVATE_KEY:
         required: false
 
@@ -39,6 +41,7 @@ jobs:
       plan_role: ${{ steps.prepare.outputs.plan_role }}
       apply_role: ${{ steps.prepare.outputs.apply_role }}
       platform_role: ${{ steps.prepare.outputs.platform_role }}
+      cloudfront_services: ${{ steps.prepare.outputs.cloudfront_services }}
     env:
       AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
       AWS_REGION: ${{ vars.AWS_REGION }}
@@ -46,6 +49,7 @@ jobs:
       INFRA_CONFIG_JSON: ${{ vars.INFRA_CONFIG_JSON }}
       DEPLOY_CONFIG_JSON: ${{ vars.DEPLOY_CONFIG_JSON }}
       RUNTIME_SECRETS_JSON: ${{ secrets.RUNTIME_SECRETS_JSON }}
+      AGENT_RUNTIME_SECRETS_JSON: ${{ secrets.AGENT_RUNTIME_SECRETS_JSON }}
       RUNNER_APP_ID: ${{ vars.RUNNER_APP_ID }}
       RUNNER_APP_PRIVATE_KEY: ${{ secrets.RUNNER_APP_PRIVATE_KEY }}
       AWS_BOOTSTRAP_ROLE_ARN: ${{ vars.AWS_BOOTSTRAP_ROLE_ARN }}
@@ -92,6 +96,7 @@ jobs:
       RUNNER_INSTANCE_ID: ${{ needs.infrastructure.outputs.runner-instance-id }}
       REDIS_ENDPOINT: ${{ needs.infrastructure.outputs.redis-endpoint }}
       RUNTIME_SECRETS_JSON: ${{ secrets.RUNTIME_SECRETS_JSON }}
+      AGENT_RUNTIME_SECRETS_JSON: ${{ secrets.AGENT_RUNTIME_SECRETS_JSON }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -187,14 +192,94 @@ jobs:
       - run: aws eks update-kubeconfig --name "$EKS_CLUSTER_NAME" --region "$AWS_REGION"
       - run: python3 scripts/smoke.py
 
+  edge:
+    needs: [bootstrap, verify]
+    if: needs.bootstrap.outputs.cloudfront_services != '[]'
+    runs-on: [self-hosted, linux, x64, kairos-eks]
+    timeout-minutes: 60
+    environment: infrastructure-production
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+      TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+      EKS_CLUSTER_NAME: ${{ needs.bootstrap.outputs.cluster }}
+      TF_IN_AUTOMATION: "true"
+      CLOUDFRONT_SERVICES: ${{ needs.bootstrap.outputs.cloudfront_services }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: azure/setup-kubectl@v4
+        with:
+          version: v1.35.0
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: 1.13.5
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ needs.bootstrap.outputs.platform_role }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID }}
+          unset-current-credentials: true
+      - name: Resolve private API origin
+        run: |
+          aws eks update-kubeconfig --name "$EKS_CLUSTER_NAME" --region "$AWS_REGION"
+          python3 scripts/collect_edge_ingresses.py
+      - uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ needs.bootstrap.outputs.apply_role }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID }}
+          unset-current-credentials: true
+      - name: Plan and reconcile the HTTPS endpoint
+        run: |
+          set -euo pipefail
+          python3 -m pip install -r requirements-automation.txt
+          python3 scripts/prepare_edge.py
+          terraform -chdir=terraform/edge init -input=false -lockfile=readonly \
+            -backend-config="$RUNNER_TEMP/edge-backend.hcl"
+          terraform -chdir=terraform/edge plan -input=false -lock-timeout=5m \
+            -var-file="$RUNNER_TEMP/edge.tfvars.json" -out="$RUNNER_TEMP/edge.tfplan"
+          terraform -chdir=terraform/edge show -json "$RUNNER_TEMP/edge.tfplan" > "$RUNNER_TEMP/edge-plan.json"
+          python3 scripts/check-plan.py "$RUNNER_TEMP/edge-plan.json"
+          terraform -chdir=terraform/edge apply -input=false "$RUNNER_TEMP/edge.tfplan"
+          terraform -chdir=terraform/edge output -json api_urls > "$RUNNER_TEMP/api-urls.json"
+      - name: Check the public HTTPS endpoint
+        run: |
+          python3 - <<'PY'
+          import json,os,time,urllib.request
+          from pathlib import Path
+          urls=json.loads(Path(os.environ["RUNNER_TEMP"],"api-urls.json").read_text())
+          for service,url in urls.items():
+              for attempt in range(30):
+                  try:
+                      with urllib.request.urlopen(url+"/health", timeout=15) as response:
+                          assert response.status == 200
+                      break
+                  except Exception:
+                      if attempt == 29:
+                          raise
+                      time.sleep(10)
+              with open(os.environ["GITHUB_STEP_SUMMARY"],"a") as stream:
+                  stream.write(f"{service}: {url}\n")
+          PY
+
   summary:
-    needs: [bootstrap, infrastructure, runner, platform, applications, verify]
+    needs: [bootstrap, infrastructure, runner, platform, applications, verify, edge]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Report complete result
         env:
           RESULTS: ${{ toJSON(needs) }}
+          CLOUDFRONT_SERVICES: ${{ needs.bootstrap.outputs.cloudfront_services }}
         run: |
           python3 - <<'PY'
           import json,os
@@ -203,5 +288,6 @@ jobs:
               f.write("## Complete EKS deployment\n\n")
               for name,item in results.items():
                   f.write(f"- {name}: {item['result']}\n")
-          assert all(item["result"]=="success" for item in results.values()), "O fluxo completo nao terminou; veja a etapa acima."
+          required={name:item for name,item in results.items() if name != "edge" or os.environ["CLOUDFRONT_SERVICES"] != "[]"}
+          assert all(item["result"]=="success" for item in required.values()), "O fluxo completo nao terminou; veja a etapa acima."
           PY

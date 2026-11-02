@@ -55,7 +55,8 @@ class FullPipelineTests(unittest.TestCase):
         self.assertIn("/redis-auth-", reads[0]["Resource"])
         self.assertNotIn("production/mobile-api", reads[0]["Resource"])
         deletes = [s for s in policy["plan"]["Statement"] if "s3:DeleteObject" in s["Action"]]
-        self.assertTrue(all(s["Resource"].endswith(".tflock") for s in deletes))
+        self.assertTrue(all(resource.endswith(".tflock") for s in deletes
+                            for resource in s["Resource"]))
 
     def test_runtime_preserves_database_and_adds_only_internal_credentials(self):
         existing = {"DB_URL": "jdbc:postgresql://db/kairos", "DB_USERNAME": "app",

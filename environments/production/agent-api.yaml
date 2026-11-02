@@ -1,15 +1,22 @@
-# Modelo da futura API. services.json mantem seu deploy desabilitado.
-# Ajustar runtime, porta, health, memoria e chaves reais antes de habilitar.
+# API MongoDB consumida pelo agente de IA. Sem credenciais neste arquivo.
 replicaCount: 1
+containerPort: 8081
 env:
-  API_PORT: "8080"
+  API_PORT: "8081"
+  APP_MONGODB_VERIFY_ON_STARTUP: "true"
+  APP_MONGODB_WRITES_ENABLED: "false"
+  SERVER_SHUTDOWN: graceful
+  SPRING_LIFECYCLE_TIMEOUT_PER_SHUTDOWN_PHASE: 25s
+  JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=70.0"
 secrets:
   name: kairos/production/agent-api
-  keys: [AGENT_API_TOKEN]
+  keys: [MONGODB_URI, MONGODB_DATABASE, API_ACCESS_TOKEN]
 ingress:
-  enabled: false
-networkPolicy:
   enabled: true
-  allowedNamespace: kairos-agent-client
+  entrypoint: cloudfront
+  className: kairos-cloudfront
+networkPolicy:
+  enabled: false
+  allowedNamespace: kairos-mobile-api
   allowedPodLabels:
-    app.kubernetes.io/name: kairos-agent
+    kairos.io/consumer: mobile-api

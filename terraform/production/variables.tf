@@ -109,7 +109,7 @@ variable "services" {
       github_repository = "KairosApplication/kairos-springboot"
     }
   }
-  description = "Apenas servicos prontos. Adicionar agent-api quando a segunda API existir."
+  description = "Servicos habilitados gerados pelo cadastro central services.json."
   validation {
     condition = length(var.services) > 0 && alltrue([
       for name, service in var.services :

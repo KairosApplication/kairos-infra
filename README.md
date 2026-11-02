@@ -13,20 +13,22 @@ Redis gerenciado, ECR, Helm e GitHub Actions.
 permissoes AWS e limites do fluxo.
 
 O workflow confere configuracao, prepara bucket/roles, provisiona a infraestrutura,
-registra o runner privado, instala a plataforma Kubernetes, publica as duas APIs
+registra o runner privado, instala a plataforma Kubernetes, publica a API principal, a API de IA e a API Redis interna
 e verifica conectividade privada, autenticacao e acesso ao Redis.
 
-A primeira identidade AWS, PostgreSQL existente e certificado ACM validado precisam
-ser fornecidos. DNS publico e migracoes do banco externo nao sao administrados por
-este fluxo. Uma PR/CI nao cria recursos AWS.
+A primeira identidade AWS e o PostgreSQL existente precisam ser fornecidos.
+Com entrypoint=cloudfront, o fluxo cria uma URL HTTPS da AWS sem dominio proprio,
+com ALB privado e cache desabilitado para a API. No modo custom-domain, fornecer
+certificado ACM validado e DNS. Migracoes do banco externo nao sao administradas
+por este fluxo. Uma PR/CI nao cria recursos AWS.
 
 ## Servicos
 
 | Servico | Origem | Acesso |
 | --- | --- | --- |
-| mobile-api | [kairos-springboot](https://github.com/KairosApplication/kairos-springboot) | HTTPS via ALB. |
+| mobile-api | [kairos-springboot](https://github.com/KairosApplication/kairos-springboot) | HTTPS via CloudFront (dominio AWS) ou ALB com dominio/certificado proprio. |
 | redis-api | [kairos-data/redis](https://github.com/KairosApplication/kairos-data/tree/main/redis) | Somente interno, chamado pela API principal. |
-| agent-api | Modelo futuro | Desabilitado. |
+| agent-api | [kairos-api-ia](https://github.com/KairosApplication/kairos-api-ia) | HTTPS CloudFront para o agente externo, com token Bearer. |
 
 O cadastro services.json e compartilhado por Terraform, bootstrap e build/deploy.
 Nao ha descoberta nem publicacao de todos os repositorios da organizacao.
@@ -117,7 +119,7 @@ inicial e cria recursos cobrados: EKS, nos, Redis, NAT, ALB, runner, segredos e 
 - O reconcile também corrige drift; rollback manual pode ser sobrescrito pelo próximo ciclo. Coordenar a pausa da reconciliação e a revisão de origem antes de uma reversão operacional.
 - Rotação no Secrets Manager não atualiza variáveis já carregadas na JVM; após sincronizar, reiniciar pods gradualmente. Nunca imprimir segredos em logs.
 - CloudWatch recebe logs do control plane. Logs da aplicação ficam inicialmente em stdout/stderr; retenção centralizada exige coletor separado.
-- ALB/HTTPS exige certificado e DNS preparados; HPA exige fonte de métricas instalada e validada.
+- CloudFront fornece HTTPS com dominio AWS; HTTPS direto no ALB exige certificado e DNS proprios. HPA exige fonte de métricas instalada e validada.
 
 Consulte [operação](docs/operations.md) antes de alterar capacidade, segredos ou releases.
 
@@ -133,7 +135,7 @@ Após o merge, atualizar esta seção de estado e os links da wiki para a main. 
 ## Documentação
 
 - [Configuracao inicial do deploy completo](docs/full-deploy.md)
-- [Futura API consumida pelo agente](docs/agent-api.md)
+- [API consumida pelo agente](docs/agent-api.md)
 - [Automacao AWS e deploy das APIs](docs/automation.md)
 - [Operacao](docs/operations.md)
 - [Instalacao](docs/setup.md)

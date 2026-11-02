@@ -15,3 +15,22 @@ spec:
     apiGroup: eks.amazonaws.com
     kind: IngressClassParams
     name: kairos-public
+
+---
+apiVersion: eks.amazonaws.com/v1
+kind: IngressClassParams
+metadata:
+  name: kairos-cloudfront
+spec:
+  scheme: internal
+---
+apiVersion: networking.k8s.io/v1
+kind: IngressClass
+metadata:
+  name: kairos-cloudfront
+spec:
+  controller: eks.amazonaws.com/alb
+  parameters:
+    apiGroup: eks.amazonaws.com
+    kind: IngressClassParams
+    name: kairos-cloudfront
