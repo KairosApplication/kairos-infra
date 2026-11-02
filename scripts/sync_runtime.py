@@ -1,6 +1,8 @@
 """Populate Secrets Manager via SDK, preserving existing values and masking all credentials."""
 import json
+import base64
 import os
+import re
 import secrets
 from urllib.parse import quote
 from pipeline_bootstrap import ensure_secret
@@ -13,7 +15,15 @@ def merge_runtime(existing, supplied, redis_url, internal_key):
             raise ValueError("Configure " + field + " no Secret RUNTIME_SECRETS_JSON ou no Secrets Manager.")
     mobile["REDIS_URL"] = redis_url
     mobile["KAIROS_INTERNAL_API_KEY"] = internal_key
-    mobile.setdefault("AUTH_SIGNING_KEY", secrets.token_urlsafe(48))
+    if "AUTH_SIGNING_KEY" not in mobile:
+        mobile["AUTH_SIGNING_KEY"] = base64.b64encode(secrets.token_bytes(48)).decode("ascii")
+    else:
+        key = mobile["AUTH_SIGNING_KEY"]
+        # Legacy bootstrap generated 48 bytes as 64 URL-safe characters.
+        # Java's Base64.getDecoder() requires the standard alphabet. Translate
+        # only that legacy format, preserving the signing bytes and valid keys.
+        if isinstance(key, str) and re.fullmatch(r"[A-Za-z0-9_-]{64}", key):
+            mobile["AUTH_SIGNING_KEY"] = key.translate(str.maketrans("-_", "+/"))
     return mobile
 
 

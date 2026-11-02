@@ -1,5 +1,6 @@
 """Boundaries of first-run bootstrap, secret handling and private service access."""
 import importlib.util
+import base64
 import fnmatch
 import json
 import os
@@ -100,6 +101,33 @@ class FullPipelineTests(unittest.TestCase):
                       and "cloudfront:CreateDistribution" in s["Action"])
         self.assertIn("cloudfront:CreateConnectionGroup", create["Action"])
         self.assertEqual(create["Condition"]["StringEquals"]["aws:RequestTag/Project"], "Kairos")
+
+    def test_new_signing_key_uses_java_compatible_base64(self):
+        runtime = {"DB_URL": "jdbc:postgresql://db/kairos", "DB_USERNAME": "app", "DB_PASSWORD": "test-only"}
+        material = b"\xfb\xff" * 24
+        with patch("sync_runtime.secrets.token_bytes", return_value=material):
+            value = merge_runtime(runtime, {}, "rediss://cache/0", "internal-test")
+        self.assertEqual(base64.b64decode(value["AUTH_SIGNING_KEY"], validate=True), material)
+        self.assertEqual(value["AUTH_SIGNING_KEY"], base64.b64encode(material).decode("ascii"))
+
+    def test_legacy_signing_key_is_reencoded_without_rotating_bytes(self):
+        material = b"\xfb\xff" * 24
+        legacy = base64.urlsafe_b64encode(material).decode("ascii")
+        runtime = {"DB_URL": "jdbc:postgresql://db/kairos", "DB_USERNAME": "app",
+                   "DB_PASSWORD": "test-only", "AUTH_SIGNING_KEY": legacy}
+        with self.assertRaises(ValueError):
+            base64.b64decode(legacy, validate=True)
+        value = merge_runtime(runtime, {}, "rediss://cache/0", "internal-test")
+        self.assertEqual(base64.b64decode(value["AUTH_SIGNING_KEY"], validate=True), material)
+        repeated = merge_runtime(value, {}, "rediss://cache/0", "internal-test")
+        self.assertEqual(repeated["AUTH_SIGNING_KEY"], value["AUTH_SIGNING_KEY"])
+        self.assertEqual(runtime["AUTH_SIGNING_KEY"], legacy)
+
+    def test_operator_supplied_standard_signing_key_is_preserved(self):
+        supplied = base64.b64encode(b"test-only-32-byte-signing-key-1234").decode("ascii")
+        runtime = {"DB_URL": "jdbc:postgresql://db/kairos", "DB_USERNAME": "app", "DB_PASSWORD": "test-only"}
+        value = merge_runtime(runtime, {"AUTH_SIGNING_KEY": supplied}, "rediss://cache/0", "internal-test")
+        self.assertEqual(value["AUTH_SIGNING_KEY"], supplied)
 
     def test_runner_command_contains_parameter_reference_not_secret(self):
         script = register_runner.remote_script(
