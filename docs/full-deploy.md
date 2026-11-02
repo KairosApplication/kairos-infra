@@ -151,7 +151,7 @@ os Environments e os mantenedores do infra.
 
 OIDC: a role inicial e o provider precisam ser preparados uma vez pelo administrador,
 com audience sts.amazonaws.com e subject
-repo:KairosApplication/kairos-infra:environment:infrastructure-production.
+repo:KairosApplication@293899017/kairos-infra@1400182943:environment:infrastructure-production.
 Com chaves IAM, cadastrar o par nos Secrets; permissoes sts:AssumeRole precisam
 incluir as roles do projeto. Nao usar usuario root.
 

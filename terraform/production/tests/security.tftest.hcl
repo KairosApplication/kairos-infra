@@ -31,7 +31,7 @@ run "mobile_only" {
   # Apply is simulated by mock_provider: no AWS calls or live resources.
   command = apply
   assert {
-    condition     = jsondecode(aws_iam_role.deployer["mobile-api"].assume_role_policy).Statement[0].Condition.StringEquals["token.actions.githubusercontent.com:sub"] == "repo:KairosApplication/kairos-infra:environment:production"
+    condition     = jsondecode(aws_iam_role.deployer["mobile-api"].assume_role_policy).Statement[0].Condition.StringEquals["token.actions.githubusercontent.com:sub"] == "repo:KairosApplication@293899017/kairos-infra@1400182943:environment:production"
     error_message = "Deploy deve aceitar somente o ambiente production do infra."
   }
   assert {
@@ -59,7 +59,7 @@ run "mobile_only" {
     error_message = "A topologia inicial deve usar duas AZs e um NAT."
   }
   assert {
-    condition     = jsondecode(aws_iam_role.publisher["mobile-api"].assume_role_policy).Statement[0].Condition.StringEquals["token.actions.githubusercontent.com:sub"] == "repo:KairosApplication/kairos-infra:ref:refs/heads/main"
+    condition     = jsondecode(aws_iam_role.publisher["mobile-api"].assume_role_policy).Statement[0].Condition.StringEquals["token.actions.githubusercontent.com:sub"] == "repo:KairosApplication@293899017/kairos-infra@1400182943:ref:refs/heads/main"
     error_message = "Publicacao ECR deve aceitar somente main do repositorio de infra."
   }
 }

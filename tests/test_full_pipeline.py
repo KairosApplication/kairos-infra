@@ -45,7 +45,7 @@ class FullPipelineTests(unittest.TestCase):
         trust = bootstrap.trust("arn:provider", "environment:infrastructure-production")
         self.assertEqual(trust["Statement"][0]["Condition"]["StringEquals"][
             "token.actions.githubusercontent.com:sub"],
-            "repo:KairosApplication/kairos-infra:environment:infrastructure-production")
+            "repo:KairosApplication@293899017/kairos-infra@1400182943:environment:infrastructure-production")
         self.assertNotIn("Principal", trust)
 
     def test_plan_cannot_read_runtime_credentials(self):

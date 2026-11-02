@@ -6,6 +6,8 @@ import time
 from pathlib import Path
 
 REPOSITORY = "KairosApplication/kairos-infra"
+# GitHub immutable OIDC identity for this organization and repository.
+OIDC_REPOSITORY = "KairosApplication@293899017/kairos-infra@1400182943"
 
 
 def role_names(cluster, account):
@@ -69,7 +71,7 @@ def trust(provider, subject, principal=None):
                    "Action": "sts:AssumeRoleWithWebIdentity",
                    "Condition": {"StringEquals": {
                        "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
-                       "token.actions.githubusercontent.com:sub": f"repo:{REPOSITORY}:{subject}"}}}]
+                       "token.actions.githubusercontent.com:sub": f"repo:{OIDC_REPOSITORY}:{subject}"}}}]
     if principal:
         statements.append({"Effect": "Allow", "Principal": {"AWS": principal},
                            "Action": "sts:AssumeRole"})
