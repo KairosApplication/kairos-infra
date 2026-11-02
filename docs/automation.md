@@ -99,7 +99,7 @@ As verificacoes sem AWS continuam rodando enquanto a automacao estiver desabilit
 
 As roles de plan/apply sao preparadas uma vez por um administrador, fora do pipeline
 que depende delas. Para OIDC, confiar no provider GitHub, audience `sts.amazonaws.com`
-e subjects exatos `repo:KairosApplication/kairos-infra:environment:infrastructure-plan`
+e subjects exatos `repo:KairosApplication@293899017/kairos-infra@1400182943:environment:infrastructure-plan`
 ou `...:environment:infrastructure-production`, conforme o job. A role de plataforma
 tambem usa o Environment infrastructure-production e precisa de acesso administrativo EKS.
 Plan precisa das leituras de EC2/VPC, EKS, IAM, ECR, Secrets Manager (apenas metadados),
