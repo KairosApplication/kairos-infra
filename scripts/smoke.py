@@ -2,6 +2,7 @@
 import json
 import subprocess
 import urllib.request
+from diagnostics import summary, error_lines
 
 
 def main():
@@ -42,6 +43,10 @@ print('Redis API autenticada e conectada ao Redis.')
         subprocess.run(["kubectl", "wait", "--for=jsonpath={.status.phase}=Succeeded",
                         "pod/kairos-integration-probe", "-n", "kairos-mobile-api", "--timeout=180s"], check=True)
         print("Conectividade privada, autenticacao interna e Redis verificados.")
+    except subprocess.SubprocessError:
+        print("\n".join(summary("kairos-mobile-api", pod_name="kairos-integration-probe")))
+        print("\n".join(error_lines("kairos-mobile-api", "kairos-integration-probe")))
+        raise RuntimeError("Integracao Redis falhou; diagnostico coletado antes de remover o pod.") from None
     finally:
         subprocess.run(["kubectl", "delete", "pod", "kairos-integration-probe",
                         "-n", "kairos-mobile-api", "--ignore-not-found=true"], check=False)

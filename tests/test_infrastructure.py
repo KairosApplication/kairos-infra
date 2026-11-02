@@ -41,6 +41,20 @@ def render(service="mobile-api", extra=(), check=True):
 
 
 class ManifestTests(unittest.TestCase):
+    def test_mobile_pool_fits_aiven_budget_during_rolling_update(self):
+        docs = render()
+        deployment = docs["Deployment"]["spec"]
+        env = docs["ConfigMap"]["data"]
+        maximum = int(env["SPRING_DATASOURCE_HIKARI_MAXIMUMPOOLSIZE"])
+        minimum = int(env["SPRING_DATASOURCE_HIKARI_MINIMUMIDLE"])
+        rolling_pods = deployment["replicas"] + deployment["strategy"]["rollingUpdate"]["maxSurge"]
+        # Actual Aiven limit is 20; leave 3 reserved slots and 6 for other clients.
+        self.assertGreater(maximum, 0)
+        self.assertGreaterEqual(minimum, 0)
+        self.assertLessEqual(minimum, maximum)
+        self.assertLessEqual(rolling_pods * maximum, 20 - 3 - 6)
+        self.assertEqual(deployment["strategy"]["rollingUpdate"]["maxUnavailable"], 0)
+
     def test_mobile_public_entry_uses_https_and_digest(self):
         docs = render()
         annotations = docs["Ingress"]["metadata"]["annotations"]
@@ -183,8 +197,8 @@ class ManifestTests(unittest.TestCase):
         deploy = workflow["jobs"]["deploy"]
         self.assertEqual(deploy["environment"], "production")
         self.assertEqual(deploy["runs-on"], ["self-hosted", "linux", "x64", "kairos-eks"])
-        script = deploy["steps"][-1]["run"]
-        self.assertIn("--atomic --wait", script)
+        script = next(step["run"] for step in deploy["steps"] if step.get("id") == "rollout")
+        self.assertIn("scripts/rollout.py", script)
         self.assertNotIn("--create-namespace", script)
         self.assertEqual(workflow["jobs"]["publish"]["permissions"]["id-token"], "write")
 

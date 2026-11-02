@@ -11,6 +11,9 @@ on:
 
   workflow_call:
     inputs:
+      initial-pool-transition:
+        type: boolean
+        default: false
       full-pipeline:
         type: boolean
         default: false
@@ -85,6 +88,7 @@ jobs:
     uses: ./.github/workflows/reusable-release.yml
     with:
       service: ${{ matrix.service }}
+      initial-pool-transition: ${{ inputs.initial-pool-transition == true && matrix.service == 'mobile-api' }}
       source-repository: ${{ matrix.source_repository }}
       source-sha: ${{ matrix.source_sha }}
       aws-region: ${{ vars.AWS_REGION }}

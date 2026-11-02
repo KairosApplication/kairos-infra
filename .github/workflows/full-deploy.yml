@@ -3,7 +3,16 @@ run-name: Complete EKS deployment by ${{ github.actor }}
 
 on:
   workflow_dispatch:
+    inputs:
+      initial-pool-transition:
+        description: "One-time mobile pool migration (brief downtime)"
+        type: boolean
+        default: false
   workflow_call:
+    inputs:
+      initial-pool-transition:
+        type: boolean
+        default: false
     secrets:
       AWS_ACCESS_KEY_ID:
         required: false
@@ -61,6 +70,12 @@ jobs:
           persist-credentials: false
       - name: Check setup before accessing AWS
         run: python3 -c 'import sys,os; sys.path.insert(0,"scripts"); from pipeline_bootstrap import validate; validate(os.environ)'
+      - name: Reject a stale infrastructure execution before bootstrap
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_REPOSITORY: ${{ github.repository }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: python3 scripts/check-source-revision.py
       - uses: aws-actions/configure-aws-credentials@v5
         with:
           role-to-assume: ${{ vars.AWS_BOOTSTRAP_ROLE_ARN }}
@@ -164,6 +179,7 @@ jobs:
     with:
       full-pipeline: true
       cluster-name: ${{ needs.bootstrap.outputs.cluster }}
+      initial-pool-transition: ${{ inputs.initial-pool-transition || false }}
       deploy-config: ${{ needs.bootstrap.outputs.deploy_config }}
     secrets: inherit
 

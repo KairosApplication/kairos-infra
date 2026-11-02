@@ -12,6 +12,9 @@ on:
       DEPLOY_APP_PRIVATE_KEY:
         required: false
     inputs:
+      initial-pool-transition:
+        type: boolean
+        default: false
       service:
         type: string
         required: true
@@ -231,7 +234,8 @@ jobs:
     needs: [prepare, publish]
     # Runner Linux dedicado, com acesso de rede ao endpoint privado do EKS.
     runs-on: [self-hosted, linux, x64, kairos-eks]
-    timeout-minutes: 20
+    # 15m upgrade + up to 15m atomic rollback, preparation and diagnostics.
+    timeout-minutes: 40
     environment: production
     permissions:
       contents: read
@@ -248,6 +252,8 @@ jobs:
       API_HOST: ${{ inputs.api-host }}
       CERTIFICATE_ARN: ${{ inputs.certificate-arn }}
       ENTRYPOINT: ${{ inputs.entrypoint }}
+      MOBILE_API_DATABASE_NAME: ${{ vars.MOBILE_API_DATABASE_NAME || 'kairosdb' }}
+      INITIAL_POOL_TRANSITION: ${{ inputs.initial-pool-transition }}
       CLOUDFRONT_PREFIX_LIST_ID: ${{ inputs.cloudfront-prefix-list-id }}
     steps:
       - name: Isolate cluster credentials for this job
@@ -339,10 +345,20 @@ jobs:
         id: rollout
         run: |
           set -euo pipefail
-          helm upgrade --install "$RELEASE" charts/kairos-api \
-            --namespace "$NAMESPACE" -f "$VALUES_FILE" \
-            -f "$RUNNER_TEMP/kairos-release.json" \
-            --atomic --wait --timeout 15m --history-max 10
-          kubectl rollout status "deployment/$RELEASE" --namespace "$NAMESPACE" --timeout=60s
+          args=()
+          if [[ "$INITIAL_POOL_TRANSITION" == true ]]; then
+            args+=(--initial-pool-transition)
+          fi
+          python3 scripts/rollout.py --release "$RELEASE" --namespace "$NAMESPACE" \
+            --values "$VALUES_FILE" --overrides "$RUNNER_TEMP/kairos-release.json" \
+            --expected-database "$MOBILE_API_DATABASE_NAME" "${args[@]}"
           printf 'API: %s\nCommit: %s\nImage: %s@%s\n' \
             "$RELEASE" "$SOURCE_SHA" "$IMAGE_REPOSITORY" "$IMAGE_DIGEST" >> "$GITHUB_STEP_SUMMARY"
+      - name: Preserve rollout diagnostics
+        if: failure() && steps.rollout.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: rollout-diagnostics-${{ inputs.service }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/${{ inputs.service }}-diagnostics.log
+          retention-days: 3
+          if-no-files-found: ignore

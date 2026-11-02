@@ -104,12 +104,22 @@ def main():
         values["agent-api"] = merge_agent_runtime(previous_agent,
             parse_agent_input(os.environ.get("AGENT_RUNTIME_SECRETS_JSON")), agent_token)
     for name, value in values.items():
-        serialized = json.dumps(value, sort_keys=True)
-        # ClientRequestToken deduplicates retries; no credentials are logged or passed in CLI args.
-        import hashlib
-        client.put_secret_value(SecretId="kairos/production/" + name,
-            SecretString=serialized, ClientRequestToken=hashlib.sha256(serialized.encode()).hexdigest())
+        sync_value(client, "kairos/production/" + name, value)
     print("Segredos runtime sincronizados sem expor valores.")
+
+
+def sync_value(client, name, value):
+    """Skip unchanged current values; a historical value needs a NEW current version."""
+    try:
+        current = client.get_secret_value(SecretId=name, VersionStage="AWSCURRENT")
+    except client.exceptions.ResourceNotFoundException:
+        current = None
+    if current and json.loads(current["SecretString"]) == value:
+        return current["VersionId"]
+    # SDK generates one UUID for this operation and reuses it for transport retries.
+    # A content hash would silently reuse a historical version on A -> B -> A.
+    return client.put_secret_value(SecretId=name,
+        SecretString=json.dumps(value, sort_keys=True))["VersionId"]
 
 
 if __name__ == "__main__":
