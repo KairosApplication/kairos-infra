@@ -6,6 +6,7 @@ import os
 import re
 import time
 import urllib.request
+from pathlib import Path
 
 
 def github(path, data=None):
@@ -25,7 +26,11 @@ def remote_script(url, digest, parameter, region, name):
     # No token is placed in this script or in the Run Command parameters.
     return f"""#!/bin/bash
 set -euo pipefail
-cloud-init status --wait >/dev/null
+echo 'Preparing runner dependencies'
+if ! cloud-init status --wait >/dev/null; then
+    echo 'cloud-init reported a previous failure; repairing runner prerequisites' >&2
+fi
+{Path(__file__).with_name('runner-prerequisites.sh').read_text(encoding='utf-8')}
 install -d -o kairos-runner -g kairos-runner -m 700 /opt/kairos-runner
 cd /opt/kairos-runner
 if [ -f svc.sh ]; then ./svc.sh stop || true; ./svc.sh uninstall || true; fi
@@ -35,6 +40,7 @@ tar -xzf /tmp/kairos-runner.tar.gz
 rm /tmp/kairos-runner.tar.gz
 rm -f .runner .credentials .credentials_rsaparams
 chown -R kairos-runner:kairos-runner /opt/kairos-runner
+echo 'Configuring GitHub runner'
 python3 - <<'PY'
 import json, subprocess
 token = subprocess.check_output(['aws', 'ssm', 'get-parameter', '--region', '{region}',
@@ -50,6 +56,7 @@ finally:
 PY
 ./svc.sh install kairos-runner
 ./svc.sh start
+echo 'GitHub runner service started'
 """
 
 
@@ -115,7 +122,9 @@ def main():
             if result["Status"] == "Success":
                 break
             if result["Status"] in ("Failed", "Cancelled", "TimedOut"):
-                raise RuntimeError("Falha ao registrar runner via SSM; consulte status do comando " + command)
+                raise RuntimeError("Falha ao registrar runner via SSM (" + result["Status"]
+                                   + ", codigo " + str(result.get("ResponseCode", "indisponivel"))
+                                   + "); consulte status do comando " + command)
             time.sleep(5)
         else:
             raise RuntimeError("Timeout ao registrar runner.")

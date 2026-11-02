@@ -13,7 +13,7 @@ o workflow **Complete EKS deployment** abaixo. Ambos executam somente na main.
 6. Preenche segredos runtime via SDK; valores nao entram em tfvars, outputs ou logs.
 7. Registra o runner dedicado via SSM e espera ficar online.
 8. Prepara namespaces, RBAC, IngressClass e CSI Secrets Manager.
-9. Testa e publica mobile-api e redis-api e faz rollout por digest.
+9. Testa e publica mobile-api, agent-api e redis-api e faz rollout por digest.
 10. Testa acesso privado autenticado a API Redis e a conexao com Redis.
 11. No modo cloudfront, cria/atualiza origem VPC e distribuicao HTTPS e testa a URL publica.
 12. Mostra um resumo unico de todas as etapas, falhando se alguma nao completar.
@@ -191,7 +191,7 @@ ajuste de inicializacao e validar migracoes concorrentes.
 
 ## Execucao e repeticao
 
-Depois do merge/configuracao: Actions > Complete EKS deployment > Run workflow > main.
+Depois do merge/configuracao: Actions > Deploy APIs to EKS > Run workflow > main.
 A Action nao provisiona nada apenas por abrir esta PR.
 
 Em repeticoes, bucket/roles/segredos/runner sao reutilizados. Terraform gerencia
@@ -207,6 +207,25 @@ desde que configure suas variables/flags separadamente.
 
 Custos: EKS, nos, NAT, ALB, Redis replicado, runner EC2, armazenamento e segredos
 sao cobrados. Valores reais dependem de regiao e uso.
+
+### Recuperacao da preparacao do runner
+
+A AMI Amazon Linux 2023 usa o pacote `awscli-2`, nao `awscli2`. O script
+`scripts/runner-prerequisites.sh` e compartilhado pelo user_data e pelo registro
+SSM, instala tambem pip/unzip e preserva o usuario existente. Se cloud-init
+registrou uma falha anterior, o registro avisa e tenta preparar novamente as
+dependencias; falhas na instalacao continuam interrompendo o fluxo.
+Nao e necessario apagar a instancia ou recriar o cluster para essa recuperacao.
+Alterar user_data pode exigir parada/inicio da EC2 conforme o plano Terraform;
+isso afeta o runner, nao os pods das APIs. Conferir o plano salvo.
+
+CloudFront usa um virtualenv temporario para boto3, evitando instalar dependencias
+no Python da AWS CLI. Cada job de cluster usa um kubeconfig temporario. O fluxo
+espera o ALB sair de provisioning antes de criar a origem VPC, sem aceitar ALBs
+de outra conta ou cluster.
+
+Depois de integrar uma correcao de codigo na main, iniciar uma nova execucao de
+Deploy APIs to EKS. Re-run de uma execucao antiga utiliza o commit antigo.
 
 ## Referencias
 

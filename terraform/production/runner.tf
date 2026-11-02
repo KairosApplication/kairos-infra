@@ -40,12 +40,7 @@ resource "aws_instance" "runner" {
   }
   # Register the runner through SSM after creation. Never put registration
   # tokens or GitHub App private keys in user_data or the Terraform state.
-  user_data  = <<-SCRIPT
-    #!/bin/bash
-    set -euo pipefail
-    dnf install -y git python3 tar gzip libicu awscli2
-    useradd --create-home --shell /bin/bash kairos-runner
-  SCRIPT
+  user_data  = file("${path.module}/../../scripts/runner-prerequisites.sh")
   tags       = { Name = "${local.name}-deploy-runner" }
   depends_on = [aws_iam_role_policy_attachment.runner_ssm, aws_route.nat]
 }

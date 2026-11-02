@@ -68,6 +68,13 @@ class FullPipelineTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             merge_runtime({}, {}, "rediss://cache/0", "internal-test")
 
+    def test_cloudfront_creation_permissions_keep_project_tag_restriction(self):
+        statements = bootstrap.policies("123456789012", "us-east-1", "kairos-state-test", "kairos-production")["apply"]["Statement"]
+        create = next(s for s in statements if isinstance(s["Action"], list)
+                      and "cloudfront:CreateDistribution" in s["Action"])
+        self.assertIn("cloudfront:CreateConnectionGroup", create["Action"])
+        self.assertEqual(create["Condition"]["StringEquals"]["aws:RequestTag/Project"], "Kairos")
+
     def test_runner_command_contains_parameter_reference_not_secret(self):
         script = register_runner.remote_script(
             "https://github.com/actions/runner/releases/download/v1/runner.tar.gz",

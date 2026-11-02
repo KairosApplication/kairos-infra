@@ -107,7 +107,8 @@ def policies(account, region, bucket, cluster):
     apply = state + [service_linked,{"Effect": "Allow", "Action": read + write, "Resource": "*"},
                      {"Effect": "Allow", "Action": ["iam:*"], "Resource": iam_resources}]
     cloudfront_resources = [f"arn:aws:cloudfront::{account}:{kind}/*" for kind in ("distribution", "vpcorigin")]
-    apply += [{"Effect": "Allow", "Action": ["cloudfront:CreateDistribution", "cloudfront:CreateVpcOrigin"],
+    apply += [{"Effect": "Allow", "Action": ["cloudfront:CreateDistribution", "cloudfront:CreateVpcOrigin",
+                                            "cloudfront:CreateConnectionGroup"],
                "Resource": "*",
                "Condition": {"StringEquals": {"aws:RequestTag/Project": "Kairos"}}},
               {"Effect": "Allow", "Action": "cloudfront:TagResource",

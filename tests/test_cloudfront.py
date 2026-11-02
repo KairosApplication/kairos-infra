@@ -5,15 +5,43 @@ import json
 import sys
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
-from prepare_edge import select_origin
+from prepare_edge import select_origin, resolve_origin
 import test_full_pipeline
 import pipeline_bootstrap
 
 class CloudFrontTests(unittest.TestCase):
+    def origin_client(self, states, tags=None):
+        client = Mock()
+        host = "internal-kairos-123.us-east-2.elb.amazonaws.com"
+        lb = {"DNSName": host, "Scheme": "internal", "Type": "application",
+              "LoadBalancerArn": "arn:aws:elasticloadbalancing:us-east-2:123456789012:loadbalancer/app/api/id"}
+        client.get_paginator.return_value.paginate.side_effect = [
+            [{"LoadBalancers": [dict(lb, State={"Code": state})]}] for state in states]
+        client.describe_tags.return_value = {"TagDescriptions": [{"Tags": [
+            {"Key": key, "Value": value} for key, value in
+            (tags if tags is not None else {"eks:eks-cluster-name": "kairos-production"}).items()]}]}
+        return client, host
+
+    def test_origin_waits_for_provisioning_alb(self):
+        client, host = self.origin_client(["provisioning", "active"])
+        with patch("prepare_edge.time.sleep") as sleep:
+            result = resolve_origin(client, host, "kairos-production", "123456789012")
+        self.assertEqual(result["State"]["Code"], "active")
+        sleep.assert_called_once()
+
+    def test_origin_wait_is_bounded_and_ownership_failures_are_not_retried(self):
+        client, host = self.origin_client(["provisioning", "provisioning"])
+        with patch("prepare_edge.time.sleep"), self.assertRaises(TimeoutError):
+            resolve_origin(client, host, "kairos-production", "123456789012", attempts=2)
+        client, host = self.origin_client(["provisioning"], tags={})
+        with patch("prepare_edge.time.sleep") as sleep, self.assertRaises(ValueError):
+            resolve_origin(client, host, "kairos-production", "123456789012")
+        sleep.assert_not_called()
+
     def test_no_custom_domain_or_acm_is_required(self):
         env=test_full_pipeline.FullPipelineTests().environment()
         env["DEPLOY_CONFIG_JSON"]=json.dumps({"mobile-api":{"entrypoint":"cloudfront"}})

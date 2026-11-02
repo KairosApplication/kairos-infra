@@ -196,6 +196,8 @@ jobs:
       AWS_REGION: ${{ vars.AWS_REGION }}
       EKS_CLUSTER_NAME: ${{ needs.plan.outputs.cluster_name }}
     steps:
+      - name: Isolate cluster credentials for this job
+        run: echo "KUBECONFIG=$RUNNER_TEMP/kairos-kubeconfig" >> "$GITHUB_ENV"
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
