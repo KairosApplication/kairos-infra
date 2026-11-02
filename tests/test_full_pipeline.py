@@ -1,5 +1,6 @@
 """Boundaries of first-run bootstrap, secret handling and private service access."""
 import importlib.util
+import fnmatch
 import json
 import os
 import sys
@@ -57,6 +58,31 @@ class FullPipelineTests(unittest.TestCase):
         deletes = [s for s in policy["plan"]["Statement"] if "s3:DeleteObject" in s["Action"]]
         self.assertTrue(all(resource.endswith(".tflock") for s in deletes
                             for resource in s["Resource"]))
+
+    def test_plan_can_refresh_existing_ecr_lifecycle_without_image_access(self):
+        statements = bootstrap.policies("123456789012", "us-east-1", "kairos-state-test", "kairos-production")["plan"]["Statement"]
+
+        def allowed(action, resource):
+            for statement in statements:
+                actions = statement["Action"]
+                resources = statement["Resource"]
+                if isinstance(actions, str):
+                    actions = [actions]
+                if isinstance(resources, str):
+                    resources = [resources]
+                if statement["Effect"] == "Allow" and any(fnmatch.fnmatchcase(action, pattern) for pattern in actions) and any(fnmatch.fnmatchcase(resource, pattern) for pattern in resources):
+                    return True
+            return False
+
+        for service in ("mobile-api", "agent-api", "redis-api"):
+            repository = "arn:aws:ecr:us-east-1:123456789012:repository/kairos/" + service
+            for action in ("ecr:DescribeRepositories", "ecr:ListTagsForResource", "ecr:GetRepositoryPolicy", "ecr:GetLifecyclePolicy"):
+                self.assertTrue(allowed(action, repository), action)
+            for action in ("ecr:GetDownloadUrlForLayer", "ecr:PutLifecyclePolicy", "ecr:DeleteLifecyclePolicy", "ecr:PutImage"):
+                self.assertFalse(allowed(action, repository), action)
+        for repository in ("arn:aws:ecr:us-east-1:123456789012:repository/other/api",
+                           "arn:aws:ecr:us-east-1:999999999999:repository/kairos/mobile-api"):
+            self.assertFalse(allowed("ecr:GetLifecyclePolicy", repository))
 
     def test_runtime_preserves_database_and_adds_only_internal_credentials(self):
         existing = {"DB_URL": "jdbc:postgresql://db/kairos", "DB_USERNAME": "app",
