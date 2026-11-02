@@ -250,6 +250,8 @@ jobs:
       ENTRYPOINT: ${{ inputs.entrypoint }}
       CLOUDFRONT_PREFIX_LIST_ID: ${{ inputs.cloudfront-prefix-list-id }}
     steps:
+      - name: Isolate cluster credentials for this job
+        run: echo "KUBECONFIG=$RUNNER_TEMP/kairos-kubeconfig" >> "$GITHUB_ENV"
       - uses: actions/checkout@v7
         with:
           repository: KairosApplication/kairos-infra

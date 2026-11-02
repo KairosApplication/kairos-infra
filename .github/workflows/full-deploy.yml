@@ -136,6 +136,8 @@ jobs:
       AWS_REGION: ${{ vars.AWS_REGION }}
       EKS_CLUSTER_NAME: ${{ needs.bootstrap.outputs.cluster }}
     steps:
+      - name: Isolate cluster credentials for this job
+        run: echo "KUBECONFIG=$RUNNER_TEMP/kairos-kubeconfig" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
@@ -174,6 +176,8 @@ jobs:
       AWS_REGION: ${{ vars.AWS_REGION }}
       EKS_CLUSTER_NAME: ${{ needs.bootstrap.outputs.cluster }}
     steps:
+      - name: Isolate cluster credentials for this job
+        run: echo "KUBECONFIG=$RUNNER_TEMP/kairos-kubeconfig" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
@@ -206,6 +210,8 @@ jobs:
       TF_IN_AUTOMATION: "true"
       CLOUDFRONT_SERVICES: ${{ needs.bootstrap.outputs.cloudfront_services }}
     steps:
+      - name: Isolate cluster credentials for this job
+        run: echo "KUBECONFIG=$RUNNER_TEMP/kairos-kubeconfig" >> "$GITHUB_ENV"
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
@@ -241,15 +247,16 @@ jobs:
       - name: Plan and reconcile the HTTPS endpoint
         run: |
           set -euo pipefail
-          python3 -m pip install -r requirements-automation.txt
-          python3 scripts/prepare_edge.py
+          python3 -m venv "$RUNNER_TEMP/edge-venv"
+          "$RUNNER_TEMP/edge-venv/bin/python" -m pip install -r requirements-automation.txt
+          "$RUNNER_TEMP/edge-venv/bin/python" scripts/prepare_edge.py
           terraform -chdir=terraform/edge init -input=false -lockfile=readonly \
             -backend-config="$RUNNER_TEMP/edge-backend.hcl"
           terraform -chdir=terraform/edge plan -input=false -lock-timeout=5m \
             -var-file="$RUNNER_TEMP/edge.tfvars.json" -out="$RUNNER_TEMP/edge.tfplan"
           terraform -chdir=terraform/edge show -json "$RUNNER_TEMP/edge.tfplan" > "$RUNNER_TEMP/edge-plan.json"
           python3 scripts/check-plan.py "$RUNNER_TEMP/edge-plan.json"
-          terraform -chdir=terraform/edge apply -input=false "$RUNNER_TEMP/edge.tfplan"
+          terraform -chdir=terraform/edge apply -input=false -lock-timeout=5m "$RUNNER_TEMP/edge.tfplan"
           terraform -chdir=terraform/edge output -json api_urls > "$RUNNER_TEMP/api-urls.json"
       - name: Check the public HTTPS endpoint
         run: |
