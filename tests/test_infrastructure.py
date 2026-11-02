@@ -197,8 +197,8 @@ class ManifestTests(unittest.TestCase):
         deploy = workflow["jobs"]["deploy"]
         self.assertEqual(deploy["environment"], "production")
         self.assertEqual(deploy["runs-on"], ["self-hosted", "linux", "x64", "kairos-eks"])
-        script = deploy["steps"][-1]["run"]
-        self.assertIn("--atomic --wait", script)
+        script = next(step["run"] for step in deploy["steps"] if step.get("id") == "rollout")
+        self.assertIn("scripts/rollout.py", script)
         self.assertNotIn("--create-namespace", script)
         self.assertEqual(workflow["jobs"]["publish"]["permissions"]["id-token"], "write")
 

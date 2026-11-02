@@ -3,6 +3,11 @@ run-name: Create or update Kairos APIs on EKS by ${{ github.actor }}
 
 on:
   workflow_dispatch:
+    inputs:
+      initial-pool-transition:
+        description: "One-time mobile pool migration (brief downtime)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -37,6 +42,12 @@ jobs:
           persist-credentials: false
       - name: Validate configuration without changing AWS
         run: python3 scripts/check_deploy_setup.py
+      - name: Require a new execution for the current main revision
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_REPOSITORY: ${{ github.repository }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: python3 scripts/check-source-revision.py
 
   repository-validation:
     name: Validate repository
@@ -60,6 +71,8 @@ jobs:
       contents: read
       id-token: write
     uses: ./.github/workflows/full-deploy.yml
+    with:
+      initial-pool-transition: ${{ inputs.initial-pool-transition || false }}
     secrets:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}

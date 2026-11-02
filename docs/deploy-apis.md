@@ -4,6 +4,50 @@
 
 **Actions > Deploy APIs to EKS > Run workflow > main**
 
+Depois de integrar uma correcao, iniciar uma **nova execucao** na main. `Re-run`
+preserva o SHA anterior e nao carrega a nova configuracao. O fluxo rejeita uma
+revisao de infraestrutura superada antes de preparar roles ou provisionar recursos.
+
+### Primeira troca do pool PostgreSQL
+
+Na primeira execucao com o pool menor, marcar `initial-pool-transition` somente
+se aceitar uma breve indisponibilidade da principal. A opcao vem desmarcada.
+Ela chega apenas ao deploy mobile-api: encerra as replicas antigas, espera a
+liberacao das conexoes, verifica o banco e instala a configuracao nova. Se o
+preflight falhar, tenta restaurar a quantidade anterior de replicas. A opcao
+nao deve ser marcada nas atualizacoes seguintes; elas mantem `maxUnavailable=0`.
+Nao cancelar o job durante a troca: o encerramento abrupto do runner pode impedir
+a restauracao. A opcao nao resolve um release Helm que ja esteja pendente;
+esse estado exige recuperacao antes de iniciar a troca.
+
+### Verificacoes e diagnostico do banco
+
+Antes do Helm da principal, um pod temporario usa psql e a identidade runtime
+no mesmo EKS. Le DB_URL, DB_USERNAME e DB_PASSWORD em arquivos CSI; os valores
+nao passam pelo ambiente ou logs do runner. Confere banco `kairosdb`, schema
+public, TLS, tabelas/historico Flyway e vagas globais/por usuario/por banco para
+o novo pool e uma conexao operacional. `MOBILE_API_DATABASE_NAME` e uma Variable
+opcional para mudar o nome esperado. Banco vazio pode ser inicializado pelo
+Flyway; schema parcial e historico com falha reprovam antes do rollout.
+O teste usa a conexao em modo somente leitura e remove pod/provider temporarios.
+Em instalacao nova, prepara o ServiceAccount runtime com metadados de adocao
+Helm, sem criar uma nova role ou ampliar suas permissoes.
+
+O job reserva 40 minutos para preparo, preflight, ate 15 minutos de atualizacao
+e outros 15 de rollback. O timeout de prontidao Helm continua em 15 minutos.
+Durante o rollout, coleta estados, motivos de eventos e assinaturas de erro
+antes de o rollback remover o pod. As mensagens da aplicacao nao sao copiadas
+integralmente: apenas classes de excecao e assinaturas conhecidas sao publicadas.
+O artefato de diagnostico fica disponivel por 3 dias se o rollout falhar.
+O teste de integracao Redis tambem coleta diagnosticos antes de remover seu pod.
+
+Secrets sem mudanca nao geram outra versao. Ao reverter uma configuracao antiga,
+a sincronizacao cria uma nova versao corrente em vez de reutilizar um token
+historico que deixaria AWSCURRENT apontando para outra configuracao.
+
+O preflight e uma verificacao pontual, nao uma reserva de conexoes. Outros
+clientes ainda precisam respeitar o limite compartilhado da Aiven.
+
 Arquivo: .github/workflows/deploy-apis.yml. Executa os workflows locais na mesma
 execucao do GitHub Actions e espera seus resultados. Nao dispara workflows em
 outros repositorios e nao considera um disparo como deploy concluido.
