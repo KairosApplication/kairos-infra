@@ -41,6 +41,20 @@ def render(service="mobile-api", extra=(), check=True):
 
 
 class ManifestTests(unittest.TestCase):
+    def test_mobile_pool_fits_aiven_budget_during_rolling_update(self):
+        docs = render()
+        deployment = docs["Deployment"]["spec"]
+        env = docs["ConfigMap"]["data"]
+        maximum = int(env["SPRING_DATASOURCE_HIKARI_MAXIMUMPOOLSIZE"])
+        minimum = int(env["SPRING_DATASOURCE_HIKARI_MINIMUMIDLE"])
+        rolling_pods = deployment["replicas"] + deployment["strategy"]["rollingUpdate"]["maxSurge"]
+        # Actual Aiven limit is 20; leave 3 reserved slots and 6 for other clients.
+        self.assertGreater(maximum, 0)
+        self.assertGreaterEqual(minimum, 0)
+        self.assertLessEqual(minimum, maximum)
+        self.assertLessEqual(rolling_pods * maximum, 20 - 3 - 6)
+        self.assertEqual(deployment["strategy"]["rollingUpdate"]["maxUnavailable"], 0)
+
     def test_mobile_public_entry_uses_https_and_digest(self):
         docs = render()
         annotations = docs["Ingress"]["metadata"]["annotations"]
