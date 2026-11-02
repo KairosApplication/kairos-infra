@@ -356,7 +356,7 @@ jobs:
             "$RELEASE" "$SOURCE_SHA" "$IMAGE_REPOSITORY" "$IMAGE_DIGEST" >> "$GITHUB_STEP_SUMMARY"
       - name: Preserve rollout diagnostics
         if: failure() && steps.rollout.outcome == 'failure'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: rollout-diagnostics-${{ inputs.service }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/${{ inputs.service }}-diagnostics.log
