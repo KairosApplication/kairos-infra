@@ -124,9 +124,13 @@ def policies(account, region, bucket, cluster):
                       "Resource": f"arn:aws:secretsmanager:{region}:{account}:secret:kairos/automation/{cluster}/redis-auth-*"}
     state = state + [redis_password]
     apply = apply + [redis_password]
+    # Terraform refreshes lifecycle policies on subsequent plans. Describe*/List*
+    # do not authorize this separate ECR Get action. No image pull/write access.
+    ecr_lifecycle = {"Effect": "Allow", "Action": ["ecr:GetLifecyclePolicy"],
+                     "Resource": f"arn:aws:ecr:{region}:{account}:repository/kairos/*"}
     return {key: {"Version": "2012-10-17", "Statement": statements}
             for key, statements in {
-                "plan": state + [{"Effect": "Allow", "Action": read, "Resource": "*"}],
+                "plan": state + [ecr_lifecycle, {"Effect": "Allow", "Action": read, "Resource": "*"}],
                 "apply": apply, "platform": platform}.items()}
 
 
