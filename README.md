@@ -134,9 +134,11 @@ Após o merge, atualizar esta seção de estado e os links da wiki para a main. 
 <!-- docs-bot:start -->
 ## Documentação
 
-- [Configuracao inicial do deploy completo](docs/full-deploy.md)
-- [API consumida pelo agente](docs/agent-api.md)
+- [API de dados para o agente de IA](docs/agent-api.md)
 - [Automacao AWS e deploy das APIs](docs/automation.md)
+- [Publicar ou atualizar as APIs no EKS](docs/deploy-apis.md)
+- [Revisão do fluxo de deploy — 02/11/2026](docs/deployment-review.md)
+- [Fluxo completo com um unico botao](docs/full-deploy.md)
 - [Operacao](docs/operations.md)
 - [Instalacao](docs/setup.md)
 <!-- docs-bot:end -->
